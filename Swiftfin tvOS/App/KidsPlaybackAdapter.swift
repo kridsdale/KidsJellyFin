@@ -44,6 +44,13 @@ final class SwiftfinKidsPlaybackFactory: KidsPlaybackSessionFactory {
         performance: KidsPerformanceSpan?, simulateStreamFailure: Bool
     ) async throws -> KidsPlaybackController {
         guard let session = sessions.currentSession else { throw KidsAPIError.authentication }
+        let evidence = KidsEvidenceCapture.currentAttempt
+        var evidenceHandedOff = false
+        defer {
+            if !evidenceHandedOff {
+                evidence?.finish(monotonicNS: DispatchTime.now().uptimeNanoseconds, disposition: .interrupted)
+            }
+        }
         let connection = session.playbackConnection
         let metadata = KidsPerformance.begin(.metadata, endpoint: .itemDetails)
         defer { metadata?.finish(Task.isCancelled ? .cancelled : .failure) }
@@ -121,8 +128,8 @@ final class SwiftfinKidsPlaybackFactory: KidsPlaybackSessionFactory {
             }
         }
         let manager = MediaPlayerManager(provider: provider, queue: nil)
-        let driver = SwiftfinKidsPlaybackDriver(manager: manager, performance: performance)
-        return KidsPlaybackController(
+        let driver = SwiftfinKidsPlaybackDriver(manager: manager, performance: performance, evidence: evidence)
+        let controller = KidsPlaybackController(
             item: item,
             title: title,
             mode: mode,
@@ -132,6 +139,33 @@ final class SwiftfinKidsPlaybackFactory: KidsPlaybackSessionFactory {
             delegate: delegate,
             performance: performance
         )
+        if KidsEvidenceCapture.shared != nil {
+            controller.onPassiveObservation = { observation in
+                evidence?.observe(source: .session, monotonicNS: observation.monotonicNS, observation: observation)
+                if observation.kind == .seekRequested, let capture = KidsEvidenceCapture.shared {
+                    let action = capture.beginAction(
+                        serverID: session.server.id,
+                        userID: session.user.id,
+                        monotonicNS: observation.monotonicNS
+                    )
+                    let seekEvidence = capture.bind(
+                        action: action,
+                        itemID: item.id,
+                        serverID: session.server.id,
+                        userID: session.user.id,
+                        clientID: UIDevice.current.identifierForVendor?.uuidString ?? "",
+                        operation: .seek
+                    )
+                    seekEvidence?.observe(source: .session, monotonicNS: observation.monotonicNS, observation: observation)
+                    seekEvidence?.finish(monotonicNS: observation.monotonicNS)
+                }
+                if observation.kind == .stopCompleted {
+                    evidence?.finish(monotonicNS: observation.monotonicNS)
+                }
+            }
+        }
+        evidenceHandedOff = true
+        return controller
     }
 }
 
@@ -143,10 +177,15 @@ final class SwiftfinKidsPlaybackDriver: KidsPlaybackDriver {
     private var observations = Set<AnyCancellable>()
     private var stopped = false
 
-    init(manager: MediaPlayerManager, performance: KidsPerformanceSpan?) {
+    init(manager: MediaPlayerManager, performance: KidsPerformanceSpan?, evidence: KidsEvidenceAttempt? = nil) {
         self.manager = manager
         manager.proxy = proxy
         proxy.performance = performance
+        if let evidence {
+            proxy.native.onPassiveObservation = { observation in
+                evidence.observe(source: .vlc, monotonicNS: observation.monotonicNanoseconds, observation: observation)
+            }
+        }
         manager.$state.sink { [weak self] _ in self?.subject.send(.updated) }.store(in: &observations)
         manager.$playbackRequestStatus.dropFirst().sink { [weak self] status in
             guard let self else { return }

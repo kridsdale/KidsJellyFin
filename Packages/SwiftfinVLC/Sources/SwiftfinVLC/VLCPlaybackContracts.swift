@@ -8,7 +8,7 @@
 
 import Foundation
 
-public enum VLCPlaybackState: Sendable, Equatable {
+public enum VLCPlaybackState: String, Sendable, Equatable, Codable {
     case idle
     case opening
     case buffering

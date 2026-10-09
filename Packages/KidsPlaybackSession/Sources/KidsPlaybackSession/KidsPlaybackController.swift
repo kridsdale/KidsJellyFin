@@ -22,6 +22,8 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
     public let episodes: [KidsItem]
     public let driver: any KidsPlaybackDriver
     public var performance: KidsPerformanceSpan?
+    /// Opt-in supplementary observations. This does not certify native output or a successful trial.
+    public var onPassiveObservation: (@MainActor (KidsSessionObservation) -> Void)?
     @Published
     public var controlsVisible = false
     @Published
@@ -53,6 +55,10 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
     private var lastCheckpoint = Date.distantPast
     private var lastControl = Date.now
     private let now: @MainActor () -> Date
+    private let monotonicNow: @MainActor () -> UInt64
+    private var lastObservedPaused: Bool?
+    private var lastObservedBuffering: Bool?
+    private var observedNativeEnd = false
 
     public init(
         item: KidsItem,
@@ -63,7 +69,8 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         driver: any KidsPlaybackDriver,
         delegate: any KidsPlaybackSessionDelegate,
         performance: KidsPerformanceSpan? = nil,
-        now: @escaping @MainActor () -> Date = { .now }
+        now: @escaping @MainActor () -> Date = { .now },
+        monotonicNow: @escaping @MainActor () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }
     ) {
         self.item = item
         self.title = title
@@ -73,10 +80,42 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         self.model = delegate
         self.performance = performance
         self.now = now
+        self.monotonicNow = monotonicNow
         let start = max(0, position)
         seconds = start
         requestedStartPosition = start
         lastControl = now()
+    }
+
+    private func observe(
+        _ kind: KidsSessionObservation.Kind,
+        position: Double? = nil,
+        seekTarget: Double? = nil,
+        failure: KidsSessionObservation.Failure? = nil,
+        cancellationRequested: Bool = false
+    ) {
+        guard let onPassiveObservation else { return }
+        onPassiveObservation(KidsSessionObservation(
+            sessionID: id,
+            kind: kind,
+            monotonicNS: monotonicNow(),
+            positionSeconds: position,
+            requestedSeekTargetSeconds: seekTarget,
+            failure: failure,
+            cancellationRequested: cancellationRequested
+        ))
+    }
+
+    private func observeTransport(paused: Bool, position: Double) {
+        guard onPassiveObservation != nil, lastObservedPaused != paused else { return }
+        lastObservedPaused = paused
+        observe(paused ? .transportPausedObserved : .transportResumedObserved, position: position)
+    }
+
+    private func observeBuffering(_ buffering: Bool, position: Double) {
+        guard onPassiveObservation != nil, lastObservedBuffering != buffering else { return }
+        lastObservedBuffering = buffering
+        observe(buffering ? .bufferingStartedObserved : .bufferingEndedObserved, position: position)
     }
 
     private func receive(_ event: KidsPlaybackDriverEvent) {
@@ -84,12 +123,21 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         switch event {
         case .updated:
             if driver.frame.failed, !failed {
+                if onPassiveObservation != nil {
+                    observe(.failureObserved, position: driver.frame.seconds, failure: .nativeFrame)
+                    if !recovery {
+                        observe(.recoveryEntered, position: driver.frame.seconds)
+                    }
+                }
                 failed = true
                 recovery = true
                 driver.pause()
             }
             updatePlaybackState()
         case let .transport(paused, clock, terminal):
+            if !terminal {
+                observeTransport(paused: paused, position: clock)
+            }
             guard began else { return }
             reveal()
             if paused {
@@ -99,8 +147,19 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
                 model?.playbackCheckpoint(self, seconds: seconds)
             }
         case let .failure(error):
+            if onPassiveObservation != nil {
+                let classification: KidsSessionObservation.Failure = switch error {
+                case .authentication: .authentication
+                case .stream: .stream
+                }
+                observe(.failureObserved, position: driver.frame.seconds, failure: classification)
+            }
             model?.playbackFailed(self, error: error)
         case .naturalEnd:
+            if onPassiveObservation != nil, !observedNativeEnd {
+                observedNativeEnd = true
+                observe(.nativeEndObserved, position: driver.frame.seconds)
+            }
             guard began, !finished else { return }
             finished = true
             Task { await self.model?.completed(self) }
@@ -160,6 +219,7 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         started = true
         performance?.mark(.managerStart)
         eventSubscription = driver.events.sink { [weak self] event in self?.receive(event) }
+        observe(.sessionStart)
         driver.start()
         tickTask = Task { [weak self] in
             while !Task.isCancelled {
@@ -190,6 +250,9 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
                 waitingSince = now()
             }
             if now().timeIntervalSince(waitingSince!) >= 15 {
+                if onPassiveObservation != nil, !recovery {
+                    observe(.recoveryEntered, position: driver.frame.seconds)
+                }
                 recovery = true
                 driver.pause()
             }
@@ -220,6 +283,9 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         if paused != currentlyPaused {
             paused = currentlyPaused
         }
+        if !terminal, frame.playing || frame.paused {
+            observeTransport(paused: currentlyPaused, position: time)
+        }
         if !began, KidsPlaybackReadiness.permitsPresentation(
             playingOrPaused: frame.playing || paused,
             buffering: frame.buffering,
@@ -233,6 +299,7 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
             performance?.once(.firstClock, values: ["seconds": time])
             performance?.mark(.playbackBegan)
             began = true
+            observe(.readinessObserved, position: time)
             driver.beginReporting()
             model?.playbackBegan(self)
         }
@@ -241,6 +308,7 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         if buffering != currentlyBuffering {
             buffering = currentlyBuffering
         }
+        observeBuffering(currentlyBuffering, position: time)
     }
 
     public func toggle() {
@@ -266,6 +334,9 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         let runtime = item.runtime ?? 0
         let target = max(0, min(runtime > 0 ? runtime : .greatestFiniteMagnitude, seconds + delta))
         if model?.isPreview != true {
+            if onPassiveObservation != nil {
+                observe(.seekRequested, position: driver.frame.seconds, seekTarget: target)
+            }
             driver.seek(seconds: target)
         }
         seconds = target
@@ -284,9 +355,13 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
     private var stopFlight: Task<Void, Never>?
 
     public func stop() async {
+        var completedStop = false
         if let stopFlight {
             await stopFlight.value
         } else if !stopped {
+            if onPassiveObservation != nil {
+                observe(.stopRequested, position: driver.frame.seconds, cancellationRequested: Task.isCancelled)
+            }
             if began && !finished {
                 model?.playbackCheckpoint(self, seconds: seconds)
             }
@@ -299,10 +374,15 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
                 let flight = Task { await driver.stop() }
                 stopFlight = flight
                 await flight.value
+                observe(.driverDrained, cancellationRequested: Task.isCancelled)
             }
+            completedStop = true
         }
         if !showCountdown {
             tickTask?.cancel()
+        }
+        if completedStop {
+            observe(.stopCompleted, cancellationRequested: Task.isCancelled)
         }
     }
 

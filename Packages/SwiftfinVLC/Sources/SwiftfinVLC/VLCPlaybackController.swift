@@ -16,6 +16,9 @@ protocol VLCNativeEngine: AnyObject {
     var requiresSurfaceMount: Bool { get }
     var frame: VLCPlaybackFrame { get }
     var subtitleTracks: [VLCSubtitleTrack] { get }
+    var passiveStatistics: VLCNativeCounterSnapshot? { get }
+    var nativeTimeObservation: VLCNativeTimeObservation? { get }
+    func setPassiveObservationsEnabled(_ enabled: Bool)
     func startupMeasurements() -> [String: Double]
     func surface(controller: VLCPlaybackController, generation: UUID) -> AnyView
     func observeUpdates(_ update: @escaping @MainActor () -> Void)
@@ -41,6 +44,16 @@ extension VLCNativeEngine {
     var requiresSurfaceMount: Bool {
         false
     }
+
+    var passiveStatistics: VLCNativeCounterSnapshot? {
+        nil
+    }
+
+    var nativeTimeObservation: VLCNativeTimeObservation? {
+        nil
+    }
+
+    func setPassiveObservationsEnabled(_ enabled: Bool) {}
 
     func startupMeasurements() -> [String: Double] {
         frame.startupMeasurements
@@ -92,14 +105,32 @@ public final class VLCPlaybackController {
     private var performance: KidsPerformanceSpan?
     private var performanceSampler: Task<Void, Never>?
     private var nativeDiagnostics: Task<Void, Never>?
+    private var passiveSampler: Task<Void, Never>?
+    private var passiveTracker: VLCPassiveObservationTracker?
+    private var passiveReceipt = UUID()
+    private var passiveTerminal = false
+    private let observationNow: @MainActor () -> UInt64
     public var onEvent: (@MainActor (VLCPlaybackEvent) -> Void)?
+
+    /// Opt-in supplementary observations; nil cancels all passive counter sampling.
+    /// Consume promptly without operating the player. Strict renderer/audio callbacks
+    /// and hardware utilization are unavailable; no replacement AV callbacks are installed.
+    public var onPassiveObservation: (@MainActor (VLCPassiveObservation) -> Void)? {
+        didSet {
+            cancelPassiveObservations()
+            if onPassiveObservation != nil, let generation, !pendingNativeOpen, !ended, !passiveTerminal {
+                startPassiveObservations(generation: generation)
+            }
+        }
+    }
 
     public convenience init() {
         self.init(engine: SwiftVLCNativeEngine())
     }
 
-    init(engine: any VLCNativeEngine) {
+    init(engine: any VLCNativeEngine, observationNow: @escaping @MainActor () -> UInt64 = { DispatchTime.now().uptimeNanoseconds }) {
         self.engine = engine
+        self.observationNow = observationNow
         engine.observeUpdates { [weak self] in
             guard let self, self.generation != nil else { return }
             self.updateSubject.send(())
@@ -109,6 +140,7 @@ public final class VLCPlaybackController {
     isolated deinit {
         performanceSampler?.cancel()
         nativeDiagnostics?.cancel()
+        passiveSampler?.cancel()
         engine.cancelUpdates()
     }
 
@@ -180,16 +212,21 @@ public final class VLCPlaybackController {
         surfaceMounted = false
         surfaceSize = .zero
         guard self.generation == generation, pendingNativeOpen else { return }
+        let terminal = endPassiveObservations(reason: .surfaceUnavailable)
         pendingNativeOpen = false
         request = nil
         pendingStart = nil
         self.generation = nil
         operationID = nil
+        if let terminal {
+            onPassiveObservation?(terminal)
+        }
         onEvent?(.playbackFailed)
     }
 
     public func open(_ request: VLCPlaybackRequest, generation: UUID, performance: KidsPerformanceSpan? = nil) {
         guard !retiredSurfaceGenerations.contains(generation) else { return }
+        let previousTerminal = endPassiveObservations(reason: .replaced)
         let operation = UUID()
         if let current = self.generation, current != generation {
             retiredSurfaceGenerations.insert(current)
@@ -202,9 +239,14 @@ public final class VLCPlaybackController {
         self.performance = performance
         self.pendingStart = !request.live && request.start > .zero ? request.start : nil
         self.ended = false
+        passiveTerminal = false
         self.terminalPosition = .zero
         performanceSampler?.cancel()
         nativeDiagnostics?.cancel()
+        if let previousTerminal {
+            onPassiveObservation?(previousTerminal)
+        }
+        guard operationID == operation else { return }
         guard !engine.requiresSurfaceMount || surfaceMounted else { return }
         beginNativeOpen(operation: operation, generation: generation)
     }
@@ -212,6 +254,8 @@ public final class VLCPlaybackController {
     private func beginNativeOpen(operation: UUID, generation: UUID) {
         guard operationID == operation, self.generation == generation, pendingNativeOpen, let request else { return }
         pendingNativeOpen = false
+        startPassiveObservations(generation: generation)
+        guard operationID == operation else { return }
         do {
             nativeDiagnostics = (engine as? SwiftVLCNativeEngine)?.observeDiagnostics(performance)
             var measurements = startupMeasurements()
@@ -228,6 +272,11 @@ public final class VLCPlaybackController {
         } catch {
             guard operationID == operation else { return }
             pendingStart = nil
+            let terminal = endPassiveObservations(reason: .openRejected)
+            if let terminal {
+                onPassiveObservation?(terminal)
+            }
+            guard operationID == operation else { return }
             onEvent?(.playbackFailed)
         }
     }
@@ -243,6 +292,7 @@ public final class VLCPlaybackController {
     }
 
     public func stop() {
+        let terminal = endPassiveObservations(reason: .requestedStop)
         if let generation {
             retiredSurfaceGenerations.insert(generation)
         }
@@ -267,6 +317,9 @@ public final class VLCPlaybackController {
         performanceSampler = nil
         nativeDiagnostics = nil
         engine.stop()
+        if let terminal {
+            onPassiveObservation?(terminal)
+        }
     }
 
     public func jump(_ offset: Duration) {
@@ -283,6 +336,8 @@ public final class VLCPlaybackController {
     public func seek(_ value: Duration) {
         guard let operation = operationID, engine.frame.seekable, operationID == operation else { return }
         pendingStart = nil
+        observeSeekRequest(value)
+        guard operationID == operation else { return }
         perform(.seek) {
             try engine.seek(value)
             guard operationID == operation else { return }
@@ -324,6 +379,10 @@ public final class VLCPlaybackController {
         let receipt = operationID
         do { try action() } catch {
             guard operationID == receipt else { return }
+            if operation == .seek {
+                observeSeekRejection()
+            }
+            guard operationID == receipt else { return }
             onEvent?(.operationRejected(operation))
         }
     }
@@ -333,8 +392,12 @@ public final class VLCPlaybackController {
         guard let operation = operationID, let pendingStart, engine.frame.seekable, operationID == operation else { return false }
         self.pendingStart = nil
         performance?.once(.resumeSeek, values: ["seconds": pendingStart.vlcSeconds])
+        observeSeekRequest(pendingStart)
+        guard operationID == operation else { return true }
         do {
             try engine.seek(pendingStart)
+            guard operationID == operation else { return true }
+            observeSeekRejection()
             guard operationID == operation else { return true }
             terminalPosition = pendingStart
             onEvent?(.resumePosition(pendingStart))
@@ -377,6 +440,13 @@ public final class VLCPlaybackController {
                 buffering = false
             case .idle, .stopped, .stopping: break
             }
+            if native.state == .error {
+                let terminal = endPassiveObservations(reason: .nativeError)
+                if let terminal {
+                    onPassiveObservation?(terminal)
+                }
+                guard operationID == operation else { return }
+            }
             onEvent?(.state(frame))
         case .buffer:
             guard native.state == .playing else { return }
@@ -399,13 +469,99 @@ public final class VLCPlaybackController {
             {
                 performance?.once(.playerError, values: ["seconds": position.vlcSeconds, "runtime_seconds": runtime.vlcSeconds])
                 performance?.finish(.failure)
+                let terminal = endPassiveObservations(reason: .prematureEnd)
+                if let terminal {
+                    onPassiveObservation?(terminal)
+                }
+                guard operationID == operation else { return }
                 onEvent?(.playbackFailed)
             } else {
+                let terminal = endPassiveObservations(reason: .naturalEnd)
+                if let terminal {
+                    onPassiveObservation?(terminal)
+                }
+                guard operationID == operation else { return }
                 onEvent?(.naturalEnd(request?.runtime))
             }
         case .audioTracks: onEvent?(.audioTracksChanged)
         case .subtitleTracks: onEvent?(.subtitleTracksChanged(engine.subtitleTracks))
         }
+    }
+
+    private func cancelPassiveObservations() {
+        engine.setPassiveObservationsEnabled(false)
+        passiveReceipt = UUID()
+        passiveSampler?.cancel()
+        passiveSampler = nil
+        passiveTracker = nil
+    }
+
+    private func startPassiveObservations(generation: UUID) {
+        guard onPassiveObservation != nil, self.generation == generation, !pendingNativeOpen else { return }
+        cancelPassiveObservations()
+        engine.setPassiveObservationsEnabled(true)
+        let receipt = passiveReceipt
+        let tracker = VLCPassiveObservationTracker(generation: generation)
+        passiveTracker = tracker
+        deliverPassive([tracker.started(frame: frame, now: observationNow())], generation: generation, receipt: receipt)
+        guard self.generation == generation, passiveReceipt == receipt, onPassiveObservation != nil else { return }
+        passiveSampler = Task { [weak self] in
+            while !Task.isCancelled {
+                guard self?.generation == generation, self?.passiveReceipt == receipt else { return }
+                self?.samplePassiveObservations(generation: generation, receipt: receipt)
+                do { try await Task.sleep(for: .milliseconds(500)) } catch { return }
+            }
+        }
+    }
+
+    // Internal for deterministic synthetic tests; production is driven by the bounded-cadence task.
+    func samplePassiveObservations(generation: UUID, receipt: UUID? = nil) {
+        let receipt = receipt ?? passiveReceipt
+        guard self.generation == generation, passiveReceipt == receipt, !pendingNativeOpen,
+              onPassiveObservation != nil, var tracker = passiveTracker else { return }
+        let observations = tracker.sample(
+            frame: frame, statistics: engine.passiveStatistics,
+            nativeTime: engine.nativeTimeObservation, now: observationNow()
+        )
+        passiveTracker = tracker
+        deliverPassive(observations, generation: generation, receipt: receipt)
+    }
+
+    private func deliverPassive(_ observations: [VLCPassiveObservation], generation: UUID, receipt: UUID) {
+        for observation in observations {
+            guard self.generation == generation, passiveReceipt == receipt, let observer = onPassiveObservation else { return }
+            observer(observation)
+        }
+    }
+
+    private func observeSeekRequest(_ target: Duration) {
+        guard let generation, onPassiveObservation != nil, var tracker = passiveTracker else { return }
+        let receipt = passiveReceipt
+        let observations = tracker.requestedSeek(
+            id: UUID(), target: target, frame: frame, statistics: engine.passiveStatistics,
+            nativeTime: engine.nativeTimeObservation, now: observationNow()
+        )
+        passiveTracker = tracker
+        deliverPassive(observations, generation: generation, receipt: receipt)
+    }
+
+    private func observeSeekRejection() {
+        guard let generation, onPassiveObservation != nil, var tracker = passiveTracker else { return }
+        let observation = tracker.rejectedSeek(frame: frame, now: observationNow())
+        passiveTracker = tracker
+        if let observation {
+            deliverPassive([observation], generation: generation, receipt: passiveReceipt)
+        }
+    }
+
+    private func endPassiveObservations(reason: VLCPassiveTerminalReason) -> VLCPassiveObservation? {
+        let observation = passiveTracker?.ended(
+            reason: reason, frame: frame, now: observationNow(), statistics: engine.passiveStatistics,
+            nativeTime: engine.nativeTimeObservation
+        )
+        cancelPassiveObservations()
+        passiveTerminal = true
+        return observation
     }
 
     private func observeStartup(generation: UUID) {

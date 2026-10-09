@@ -930,6 +930,19 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         guard isCurrentAccount(accountLease) else { return }
         let variant = KidsPerformanceVariant(rawValue: mode.rawValue) ?? .unknown
         let trace = KidsPerformance.begin(.playback, variant: variant, values: ["retry": retryItem == nil ? 0 : 1])
+        let evidenceCapture = KidsEvidenceCapture.shared
+        let evidenceAction = evidenceCapture?.beginAction(serverID: binding.serverID, userID: binding.userID)
+        let evidenceClientID = evidenceCapture == nil ? "" : (UIDevice.current.identifierForVendor?.uuidString ?? "")
+        let requestedItem = retryItem ?? explicitEpisode ?? (title.kind == .movie ? title : nil)
+        let earlyEvidence = requestedItem.flatMap {
+            evidenceCapture?.bind(
+                action: evidenceAction,
+                itemID: $0.id,
+                serverID: binding.serverID,
+                userID: binding.userID,
+                clientID: evidenceClientID
+            )
+        }
         starting = true
         sessionFinished = false
         missingItemReplacement = nil
@@ -943,8 +956,16 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
             self.problem = "This video is taking a break. Try again."
         }
         startTask = Task { [weak self] in
-            guard let self else { return }
+            guard let self else {
+                earlyEvidence?.finish(monotonicNS: DispatchTime.now().uptimeNanoseconds, disposition: .interrupted)
+                return
+            }
+            var selectedEvidence = earlyEvidence
+            var evidenceHandedOff = false
             defer {
+                if !evidenceHandedOff {
+                    selectedEvidence?.finish(monotonicNS: DispatchTime.now().uptimeNanoseconds, disposition: .interrupted)
+                }
                 if self.startGeneration == generation {
                     self.startTask = nil
                     self.starting = false
@@ -994,6 +1015,15 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                         }
                     }
                     trace?.mark(.itemSelected, values: ["resume_seconds": position, "episodes": Double(allEpisodes.count)])
+                    if selectedEvidence == nil {
+                        selectedEvidence = evidenceCapture?.bind(
+                            action: evidenceAction,
+                            itemID: item.id,
+                            serverID: binding.serverID,
+                            userID: binding.userID,
+                            clientID: evidenceClientID
+                        )
+                    }
                     let verified = try await api.authorize(itemID: item.id, expectedKind: item.kind, binding: binding)
                     trace?.mark(.authorized)
                     guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding else { trace?.finish(.cancelled)
@@ -1008,15 +1038,17 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                     #else
                     let simulateStreamFailure = false
                     #endif
-                    let controller = try await playbackFactory.prepare(
-                        item: verified,
-                        title: title,
-                        mode: mode,
-                        position: position,
-                        episodes: allEpisodes,
-                        delegate: self,
-                        performance: trace, simulateStreamFailure: simulateStreamFailure
-                    )
+                    let controller = try await KidsEvidenceCapture.$currentAttempt.withValue(selectedEvidence) {
+                        try await playbackFactory.prepare(
+                            item: verified,
+                            title: title,
+                            mode: mode,
+                            position: position,
+                            episodes: allEpisodes,
+                            delegate: self,
+                            performance: trace, simulateStreamFailure: simulateStreamFailure
+                        )
+                    }
                     guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding,
                           self.startGeneration == generation
                     else { await controller.stop()
@@ -1025,6 +1057,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                     }
                     trace?.mark(.controllerReady)
                     self.activePlayback = controller
+                    evidenceHandedOff = true
                     controller.start()
                 } catch {
                     trace?.finish(error: error)

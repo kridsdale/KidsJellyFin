@@ -25,6 +25,26 @@ final class SwiftVLCNativeEngine: VLCNativeEngine {
     }
 
     private var updateTask: Task<Void, Never>?
+    private(set) var nativeTimeObservation: VLCNativeTimeObservation?
+    private var nativeTimeSequence: UInt64 = 0
+    private var passiveObservationsEnabled = false
+
+    func setPassiveObservationsEnabled(_ enabled: Bool) {
+        passiveObservationsEnabled = enabled
+        nativeTimeObservation = nil
+    }
+
+    var passiveStatistics: VLCNativeCounterSnapshot? {
+        guard let statistics = player.statistics else { return nil }
+        return .init(
+            readBytes: statistics.readBytes, decodedVideo: statistics.decodedVideo,
+            displayedPictures: statistics.displayedPictures, lostPictures: statistics.lostPictures,
+            latePictures: statistics.latePictures, decodedAudio: statistics.decodedAudio,
+            playedAudioBuffers: statistics.playedAudioBuffers, lostAudioBuffers: statistics.lostAudioBuffers,
+            demuxCorrupted: statistics.demuxCorrupted, demuxDiscontinuity: statistics.demuxDiscontinuity
+        )
+    }
+
     var frame: VLCPlaybackFrame {
         var result = VLCPlaybackFrame()
         switch player.state {
@@ -79,11 +99,18 @@ final class SwiftVLCNativeEngine: VLCNativeEngine {
             default: false
             }
         })
-        updateTask = Task {
-            for await _ in events {
+        updateTask = Task { [weak self] in
+            for await event in events {
                 guard !Task.isCancelled else { return }
                 await Task.yield()
                 guard !Task.isCancelled else { return }
+                if let self, self.passiveObservationsEnabled, case let .timeChanged(time) = event {
+                    self.nativeTimeSequence += 1
+                    self.nativeTimeObservation = .init(
+                        sequence: self.nativeTimeSequence, monotonicNanoseconds: DispatchTime.now().uptimeNanoseconds,
+                        positionSeconds: time.vlcSeconds
+                    )
+                }
                 update()
             }
         }
@@ -95,6 +122,7 @@ final class SwiftVLCNativeEngine: VLCNativeEngine {
     }
 
     func open(_ request: VLCPlaybackRequest) throws {
+        nativeTimeObservation = nil
         let media = try Media(url: request.url)
         for url in request.subtitleURLs {
             try media.addSlave(from: url, type: .subtitle)
@@ -123,6 +151,7 @@ final class SwiftVLCNativeEngine: VLCNativeEngine {
     }
 
     func seek(_ time: Duration) throws {
+        nativeTimeObservation = nil
         try player.seek(to: time)
     }
 
