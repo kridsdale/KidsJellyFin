@@ -102,6 +102,11 @@ struct KidsParentView: View {
                     connectionSection
                     Section("Parent phone controls") {
                         Text("TV installation ID: \(model.receiverInstallationID)")
+                        if let revision = model.receiverBuildRevision {
+                            Text("Client build: \(revision)").font(.caption)
+                        } else {
+                            Text("Client build is unavailable. Commissioning requires a stamped build.").font(.caption)
+                        }
                         Text(model.viewingControlStatus).foregroundStyle(.secondary)
                         TextField("Parent service address", text: $parentServiceURL).textInputAutocapitalization(.never)
                             .autocorrectionDisabled()

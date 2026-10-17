@@ -8,13 +8,16 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 
 ## Current checkpoint
 
-- Client commit: `0524f3ba` on `feature/kids-release-candidate`, local only.
+- Admission base commit: `0524f3ba` on `feature/kids-release-candidate`, local only;
+  the subsequent build-declaration source is validated by the digest below.
 - Built/source implementation digest:
-  `9e221e392a933a8ac1c7f5821fde9bee7f0a7cc338c8744d63ec41264cf00cf1`.
-- Synthetic checks: application50, protocol60, policy22, playback-session21 and
+  `47e7f99fd2f940be797890f5f3d22512656b2659a7275393af393ff3fde5dcda`.
+- Synthetic checks: application50, protocol62, policy22, playback-session21 and
   VLC ownership21 tests passed. The55-library dependency audit passed.
 - Backend final reader/startup checkpoint and rollout commands: awaiting the
   server agent. Its earlier source checkpoint `0e239f5` reported425 tests.
+- The final operator registry and isolated trial launcher are being implemented;
+  they must be actual tested source before this plan's live approval step.
 - Deployment, scoped credentials, receiver activation and household playback:
   not performed by this work. Physical-device/iCloud trials remain deferred.
 

@@ -18,6 +18,11 @@ import UIKit
 
 @MainActor
 final class KidsViewingRuntime {
+    static var clientRevision: ReceiverBuildRevision? {
+        (Bundle.main.object(forInfoDictionaryKey: "KidsEvidenceImplementationRevision") as? String)
+            .flatMap { ReceiverBuildRevision(rawValue: $0) }
+    }
+
     var configuration: KidsReceiverConfiguration
     var lease: ViewingLease
     let api: KidsReceiverAPI
@@ -73,6 +78,7 @@ final class KidsViewingRuntime {
             childUserID: configuration.childUserID,
             deviceID: configuration.deviceID.uuidString,
             token: configuration.token,
+            clientRevision: Self.clientRevision,
             transport: transport
         )
         let directory = ledgerDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -121,6 +127,10 @@ final class KidsViewingRuntime {
 extension KidsAppModel {
     public var receiverInstallationID: String {
         UIDevice.current.identifierForVendor?.uuidString ?? "Unavailable"
+    }
+
+    public var receiverBuildRevision: String? {
+        KidsViewingRuntime.clientRevision?.rawValue
     }
 
     func resetViewingControlIdentity() {

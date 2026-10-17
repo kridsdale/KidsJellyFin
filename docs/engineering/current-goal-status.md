@@ -1,5 +1,27 @@
 # Current engineering goal disposition
 
+## Active Parents delivery goal — 2026-10-17
+
+The current goal is to complete the Parents iPhone app, its tvOS receiver and the
+backend integration, coordinating with **Make YT Feature**. It is not complete.
+Client checkpoint `0524f3ba` wires durable explicit playback admission and passes
+50 application,62 protocol,22 policy,21 session and21 VLC ownership synthetic tests;
+the55-library boundary audit and built/source fingerprint match also pass.
+These source checks do not establish deployed parental enforcement or live playback.
+
+The client also declares its embedded build in receiver HTTP headers and protected
+pairing settings. The backend agent is finishing exact approved-library readers,
+startup/maintenance locks and the newly identified missing operator commission
+registry/trial launcher. Deployment, provisioning, isolated receiver commissioning
+and feature acceptance remain unperformed by this work. All13 requirements and
+their completion evidence remain in [parents-app.md](parents-app.md); the concrete
+ordered test scope and rollback are in [parents-commissioning.md](parents-commissioning.md).
+Capabilities remain off pending their acceptance gates. Existing RAID media is
+untouched; physical-device/iCloud and App Store release work remain explicitly
+deferred. The older completed package-refactor goal below is a separate workstream.
+
+## Previously completed package-refactor goal
+
 The full-client package-refactor and Swift 6 objective is complete for its authorized client scope as of 2026-10-08. The current inventory is 53 extracted libraries / 252 package source bodies, 664 retained app UI/composition sources and 15 sources in the pre-existing local targets, with 74 one-way local dependency edges. Current tvOS Debug and optimized Release builds and the iOS Release compile pass. Simulator acceptance 89 passes 90 integrated methods plus separate genuine EOF/next and session-cap methods, with zero failures/skips; the matched Release profile passes two methods/seven starts. Complete original client state is restored through the SDK and exported equal. Physical Apple TV/live CloudKit, server boot/reboot and App Store release remain explicitly deferred or separately owned. See [the resumed acceptance report](resumed-client-acceptance.md) for exact evidence, measured performance and platform limits.
 
 The table below records the candidate checkpoint from 2026-10-05. The later full-client package extraction and Swift 6 objective completed on 2026-10-08; see [current package evidence](package-refactor.md). Older dated checkpoints below retain their historical dispositions.

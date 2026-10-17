@@ -45,6 +45,24 @@ An authenticated `enforcementEnabled:false` plus correlated release may deactiva
 an omitted field never deactivates. A grown-up can explicitly unpair using the PIN.
 Token replacement preserves the activation marker and any completed-control latch.
 
+The receiver now captures the built `KidsEvidenceImplementationRevision` once per
+runtime and sends its validated64-lowercase-hex value in `X-Kids-Client-Build` on
+policy, event, intent and surrender requests. The PIN-protected pairing screen
+also displays the embedded value; launch environment variables cannot replace it.
+Missing/malformed stamps emit no build header. This is a build declaration, not
+cryptographic attestation, operational readiness or proof of frames. The backend's
+operator-created commission record must independently pin the exact scope, receiver
+credential, contracts, build and finite validity window. Header receipt must never
+create/promote that record. Backend registry/launcher source and its final HTTP
+fixture remain in progress; the final fixture will resolve header spelling if needed.
+
+The agreed denial is structured501 `receiver_build_unverified` for new authority.
+Exact committed receipt replay remains inert200 before that check. Known historical
+evidence, safe surrender and explicit disabled-release delivery remain drainable;
+the build header is not part of event/mutation idempotency identity and does not
+change any6/10-key body. A denial never discards an unknown journal action, rewrites
+its key/body, grants frames or manufactures a quota refund.
+
 Pairing is not evidence of commissioning. A never-activated heartbeat reports only
 reachability: revision 0, no playback session/item/position/command, zero elapsed.
 It does not mint a lease, debit time, create history or claim deadline readiness.
@@ -531,7 +549,7 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 60 passed |
+| KidsParentControl transport/feature/fixture tests | 62 passed |
 | KidsViewingControl pure policy tests | 22 passed |
 | KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
@@ -576,7 +594,10 @@ durability, corrupt/foreign journal rejection and remote Resume expiry/ACK prove
 Source fingerprints identify these builds; they do not certify a runtime budget trial.
 After the final source changes and formatting, the built TV app's
 `KidsEvidenceImplementationRevision` matches source SHA-256
-`9e221e392a933a8ac1c7f5821fde9bee7f0a7cc338c8744d63ec41264cf00cf1`.
+`47e7f99fd2f940be797890f5f3d22512656b2659a7275393af393ff3fde5dcda`.
+The build-declaration update reran all50 application tests and added protocol
+coverage for all four receiver routes, unchanged frozen bodies and rejection of
+uppercase, malformed-length, nonhex and CRLF header values.
 The shared-flight regression ensures a completed refresh is retired before a newly
 staged intent must be sent. A further readiness-loss test holds a granted resume
 before transport and preserves the earlier observed generation for terminal evidence;

@@ -35,6 +35,67 @@ private actor ReceiverTransport: ParentHTTPTransport {
 }
 
 private let receiverID = "10000000-0000-4000-8000-000000000004"
+
+@Test
+func `build revision rejects malformed or ambiguous header values`() {
+    let valid = String(repeating: "abcdef01", count: 8)
+    #expect(ReceiverBuildRevision(rawValue: valid)?.rawValue == valid)
+    for invalid in [
+        "",
+        String(valid.dropLast()),
+        valid + "0",
+        valid.uppercased(),
+        valid + "\r\nHeader: value",
+        String(repeating: "é", count: 32),
+        String(repeating: "g", count: 64)
+    ] {
+        #expect(ReceiverBuildRevision(rawValue: invalid) == nil)
+    }
+}
+
+@Test
+func `all receiver requests declare the embedded build without changing frozen bodies`() async throws {
+    let revision = try #require(ReceiverBuildRevision(rawValue: String(repeating: "abcdef01", count: 8)))
+    let eventID = UUID(), intentID = UUID(), surrenderID = UUID()
+    let policy = """
+    {"serverID":"family","childUserID":"kid","deviceID":"\(receiverID)","revision":0,
+    "serverTime":"2026-10-17T12:00:00Z","validUntil":"2026-10-17T12:00:00Z",
+    "viewingAllowed":false,"blockedShowIDs":[],"blockedEpisodeIDs":[],
+    "shuffle":{"preferUnwatched":false,"repeatCooldownDays":0,"preferredShowIDs":[]},"commands":[]}
+    """
+    let transport = ReceiverTransport(responses: [policy] + [eventID, intentID, surrenderID].map {
+        "{\"commandID\":\"\($0)\",\"status\":\"persisted\"}"
+    })
+    let api = try KidsReceiverAPI(
+        server: ParentServer("http://127.0.0.1:9"),
+        serverID: "family",
+        childUserID: "kid",
+        deviceID: receiverID,
+        token: "receiver-only",
+        clientRevision: revision,
+        transport: transport
+    )
+    _ = try await api.policy()
+    try await api.send(ReceiverEvent(eventID: eventID, deviceID: receiverID, childUserID: "kid", policyRevision: 0, kind: .heartbeat))
+    try await api.requestPlaybackIntent(commandID: intentID, expectedRevision: 0, playbackSessionID: "controller", itemID: "episode")
+    try await api.surrenderPlayback(commandID: surrenderID, playbackIntentID: intentID, playbackSessionID: "controller", itemID: "episode")
+    let requests = await transport.requests
+    #expect(requests.count == 4)
+    for (index, request) in requests.enumerated() {
+        #expect(request.value(forHTTPHeaderField: "X-Kids-Client-Build") == revision.rawValue)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer receiver-only")
+        #expect(request.url?.query == nil)
+        if let data = request.httpBody {
+            let decoded = try JSONSerialization.jsonObject(with: data)
+            let object = try #require(decoded as? [String: Any])
+            #expect(object.count == (index == 1 ? 10 : 6))
+            #expect(object["clientRevision"] == nil && object["X-Kids-Client-Build"] == nil)
+        } else {
+            #expect(index == 0)
+        }
+    }
+}
+
 private func receiverAPI(_ transport: ReceiverTransport) throws -> KidsReceiverAPI {
     try KidsReceiverAPI(
         server: ParentServer("http://192.168.10.100:8097"),

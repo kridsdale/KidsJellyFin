@@ -291,13 +291,18 @@ public struct KidsReceiverAPI: Sendable {
         childUserID: String,
         deviceID: String,
         token: String,
+        clientRevision: ReceiverBuildRevision? = nil,
         transport: any ParentHTTPTransport = ParentURLTransport()
     ) {
         http = ParentHTTP(server: server, transport: transport)
         self.serverID = serverID
         self.childUserID = childUserID
         self.deviceID = deviceID
-        headers = ["Authorization": "Bearer \(token)"]
+        var headers = ["Authorization": "Bearer \(token)"]
+        if let clientRevision {
+            headers["X-Kids-Client-Build"] = clientRevision.rawValue
+        }
+        self.headers = headers
     }
 
     public func policy() async throws -> ReceiverPolicy {
