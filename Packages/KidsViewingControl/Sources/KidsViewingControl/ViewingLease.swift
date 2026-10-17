@@ -156,12 +156,13 @@ public struct ViewingLease: Sendable {
     }
 
     public func mayApply(_ command: ReceiverPolicy.Command, playbackSessionID: String, at now: UInt64) -> Bool {
-        isFresh(at: now) && command.playbackSessionID == playbackSessionID &&
+        let controlFresh = requiresPlaybackGrants ? acceptedAt.map { now >= $0 && now < catalogEnd } == true : isFresh(at: now)
+        return controlFresh && command.playbackSessionID == playbackSessionID &&
             commandExpiries[command.commandID].map { now < $0 } == true
     }
 
     public func shuffleCandidates(_ items: [KidsItem], binding: KidsBinding, at now: UInt64) -> [KidsItem] {
-        let allowed = items.filter { permits($0, binding: binding, at: now) }
+        let allowed = items.filter { permitsBrowsing($0, binding: binding, at: now) }
         guard let policy, let context = policy.shuffleContext, context.complete == true else { return allowed }
         var candidates = allowed
         if policy.shuffle.repeatCooldownDays > 0 {

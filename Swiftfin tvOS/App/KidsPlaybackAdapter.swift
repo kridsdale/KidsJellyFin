@@ -208,6 +208,9 @@ final class SwiftfinKidsPlaybackDriver: KidsPlaybackDriver {
         subject.eraseToAnyPublisher()
     }
 
+    private var lastBufferFill: Float?
+    private var bufferReadySequence: UInt64 = 0
+
     var frame: KidsPlaybackFrame {
         let native = proxy.native.frame
         let state = native.state
@@ -223,12 +226,20 @@ final class SwiftfinKidsPlaybackDriver: KidsPlaybackDriver {
         value.reachedEnd = native.reachedEnd
         value.displayedPictures = Int(clamping: native.displayedPictures)
         value.seekable = native.seekable
+        value.bufferReadySequence = bufferReadySequence
         return value
     }
 
     func start() {
         proxy.native.updates.sink { [weak self] in
             guard let self, !self.stopped else { return }
+            let fill = self.proxy.native.frame.bufferFill
+            if fill.isFinite {
+                if let previous = self.lastBufferFill, previous < 1, fill >= 1 {
+                    self.bufferReadySequence = self.bufferReadySequence == .max ? .max : self.bufferReadySequence + 1
+                }
+                self.lastBufferFill = fill
+            }
             self.subject.send(.updated)
         }.store(in: &observations)
         manager.start()

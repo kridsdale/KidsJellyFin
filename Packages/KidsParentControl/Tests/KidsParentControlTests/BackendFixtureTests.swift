@@ -81,6 +81,41 @@ private struct GrantIntentRequest: Decodable {
     let itemID: String
 }
 
+@Test
+func `actual shuffle transaction preserves positive history and explicit incomplete intervals`() async throws {
+    let name = "shuffle-context-transaction"
+    let keys = [
+        "fresh-idle-policy",
+        "first-bound-policy",
+        "positive-local-policy",
+        "stale-userdata-policy",
+        "unobserved-bound-policy",
+        "unknown-past-policy",
+        "independent-positive-userdata-policy"
+    ]
+    let replies = try keys.map { try nestedRecoveryFixture(name, $0, "body") }
+    let transport = FixtureTransport(replies: replies)
+    let api = try recoveryAPI(transport)
+    var policies: [ReceiverPolicy] = []
+    for _ in keys {
+        try await policies.append(api.policy())
+    }
+    let episode = "10000000-0000-4000-8000-000000000006"
+    let other = "abcdefab-0000-4000-8000-000000002328"
+    #expect(policies[0].shuffleContext?.complete == true && policies[0].shuffleContext?.watchedItemIDs == [])
+    #expect(!policies[0].viewingAllowed && policies[0].validUntil == policies[0].serverTime)
+    #expect(policies[1].viewingAllowed && policies[1].shuffleContext?.watchedItemIDs == [])
+    #expect(policies[2].shuffleContext?.complete == true && policies[2].shuffleContext?.watchedItemIDs == [episode])
+    #expect(policies[3].shuffleContext?.complete == false)
+    #expect(policies[4].viewingAllowed && policies[4].shuffleContext?.watchedItemIDs == [episode])
+    #expect(policies[5].shuffleContext?.complete == false)
+    #expect(policies[6].shuffleContext?.complete == true && policies[6].shuffleContext?.watchedItemIDs == [episode, other])
+    let before = try JSONSerialization.jsonObject(with: wireFixture(name, "unknown-past-accounting")) as? [String: Double]
+    let after = try JSONSerialization.jsonObject(with: wireFixture(name, "accounting-after-userdata")) as? [String: Double]
+    #expect(before == after) // Metadata enrichment never refunds unknown viewing.
+    #expect(before?["uncertainSeconds"] == 30 && before?["usedSeconds"] == 5)
+}
+
 private struct GrantSurrenderRequest: Decodable {
     let commandID: UUID
     let playbackIntentID: UUID

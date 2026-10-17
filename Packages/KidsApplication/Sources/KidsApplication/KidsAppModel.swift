@@ -1077,10 +1077,18 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                             performance: trace, simulateStreamFailure: simulateStreamFailure
                         )
                     }
+                    do {
+                        guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding,
+                              self.startGeneration == generation else { throw CancellationError() }
+                        try await self.admitViewingPlayback(controller, binding: binding)
+                    } catch {
+                        await self.abandonPreparedViewing(controller)
+                        throw error
+                    }
                     guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding,
                           self.startGeneration == generation, self.permitsViewing(verified, binding: binding),
                           self.permitsViewingPlayback(controller, binding: binding)
-                    else { await controller.stop()
+                    else { await self.abandonPreparedViewing(controller)
                         trace?.finish(.cancelled)
                         return
                     }
@@ -1117,6 +1125,8 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     }
 
     public func stopPlayback(endSession: Bool = true) async {
+        viewingRuntime?.admissionEpoch = UUID()
+        viewingRuntime?.admissionFlight?.task.cancel()
         let generation = UUID()
         startGeneration = generation
         startTask?.cancel()
@@ -1142,6 +1152,8 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     }
 
     public func cancelPendingStart() {
+        viewingRuntime?.admissionEpoch = UUID()
+        viewingRuntime?.admissionFlight?.task.cancel()
         startGeneration = UUID()
         startTask?.cancel()
         startTask = nil
@@ -1152,6 +1164,9 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         receiverForeground = false
         cancelPendingStart()
         lockParents()
+        if let controller = activePlayback {
+            holdViewingTransport(controller, reason: .paused)
+        }
         activePlayback?.pauseOnBackground()
     }
 

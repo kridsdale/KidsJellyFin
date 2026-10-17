@@ -205,6 +205,169 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         }
     }
 
+    /// Canned policy/receipt transport. It contains no quota/accounting engine;
+    /// those semantics are separately replayed from the real backend fixture.
+    private actor AdmissionTransport: ParentHTTPTransport {
+        var requests: [URLRequest] = []
+        var base: [String: Any]
+        var prepared: [String: Any]?
+        var bound = false
+        var revision = 1
+        var boundReplies = 0
+        var loseIntentOnce: Bool
+        var holdGrant: Bool
+        let grantEntered = AsyncStream<Void>.makeStream()
+        var grantContinuation: CheckedContinuation<Void, Never>?
+
+        init(base: String, loseIntentOnce: Bool = false, holdGrant: Bool = false) throws {
+            self.base = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(base.utf8)) as? [String: Any])
+            self.loseIntentOnce = loseIntentOnce
+            self.holdGrant = holdGrant
+        }
+
+        func releaseGrant() {
+            holdGrant = false
+            grantContinuation?.resume()
+            grantContinuation = nil
+        }
+
+        func setResumeCommand(_ id: UUID, sessionID: String, expired: Bool = false) {
+            base["commands"] = [[
+                "commandID": id.uuidString,
+                "action": "resume",
+                "playbackSessionID": sessionID,
+                "expiresAt": expired ? "2026-10-17T11:59:59.000Z" : "2026-10-17T12:00:30.000Z"
+            ]]
+        }
+
+        func suspendNextGrant() {
+            holdGrant = true
+        }
+
+        func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+            requests.append(request)
+            let path = try XCTUnwrap(request.url?.lastPathComponent)
+            var status = 200
+            let object: [String: Any]
+            if request.httpMethod == "GET" {
+                if prepared != nil, !bound {
+                    if holdGrant {
+                        await withCheckedContinuation { continuation in
+                            grantContinuation = continuation
+                            grantEntered.continuation.yield(())
+                        }
+                    }
+                    bound = true
+                    revision += 1
+                }
+                var policy = base
+                policy["revision"] = revision
+                policy["policyControl"] = NSNull()
+                policy["playbackIntentRequired"] = true
+                policy["playbackIntentAvailable"] = !bound
+                policy["viewingAllowed"] = bound
+                policy["validUntil"] = bound ? "2026-10-17T12:00:30.000Z" : policy["serverTime"]
+                policy["playbackIntentID"] = bound ? prepared?["commandID"] : NSNull()
+                policy["leasePlaybackSessionID"] = bound ? prepared?["playbackSessionID"] : NSNull()
+                policy["leaseItemID"] = bound ? prepared?["itemID"] : NSNull()
+                if bound {
+                    boundReplies += 1
+                }
+                object = policy
+            } else {
+                let data = try XCTUnwrap(request.httpBody)
+                let body = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+                if path == "events" {
+                    object = try ["commandID": XCTUnwrap(body["eventID"]), "status": "persisted"]
+                } else {
+                    let commandID = try XCTUnwrap(body["commandID"] as? String)
+                    if path == "playback-intents" {
+                        if prepared?["commandID"] as? String != commandID {
+                            prepared = body
+                            bound = false
+                        }
+                        if loseIntentOnce {
+                            loseIntentOnce = false
+                            status = 503
+                        }
+                    } else if path == "playback-surrenders" {
+                        if body["playbackIntentID"] as? String == prepared?["commandID"] as? String {
+                            prepared = nil
+                            bound = false
+                            revision += 1
+                        }
+                    } else {
+                        throw ParentControlError.malformedResponse
+                    }
+                    object = ["commandID": commandID, "status": "persisted"]
+                }
+            }
+            return try (JSONSerialization.data(withJSONObject: object), XCTUnwrap(HTTPURLResponse(
+                url: XCTUnwrap(request.url), statusCode: status, httpVersion: nil, headerFields: nil
+            )))
+        }
+    }
+
+    private final class AdmissionDriver: KidsPlaybackDriver {
+        var frame = KidsPlaybackFrame()
+        let subject = PassthroughSubject<KidsPlaybackDriverEvent, Never>()
+        var events: AnyPublisher<KidsPlaybackDriverEvent, Never> {
+            subject.eraseToAnyPublisher()
+        }
+
+        var starts = 0, stops = 0, toggles = 0
+        func start() {
+            starts += 1
+        }
+
+        func beginReporting() {}
+        func seek(seconds: Double) {}
+        func pause() {
+            guard !frame.paused else { return }
+            frame.paused = true
+            frame.playing = false
+            subject.send(.transport(paused: true, seconds: frame.seconds, terminal: frame.terminal))
+        }
+
+        func togglePlayPause() {
+            toggles += 1
+            frame.paused.toggle()
+            frame.playing = !frame.paused
+            subject.send(.transport(paused: frame.paused, seconds: frame.seconds, terminal: frame.terminal))
+            subject.send(.updated)
+        }
+
+        func stop() async {
+            stops += 1
+            frame.playing = false
+            frame.terminal = true
+        }
+
+        func advance(_ seconds: Double) {
+            frame.seconds = seconds
+            frame.displayedPictures += 1
+            frame.playing = true
+            frame.paused = false
+            subject.send(.updated)
+        }
+    }
+
+    private func grantHarness(
+        loseIntentOnce: Bool = false,
+        holdGrant: Bool = false
+    ) async throws -> (KidsAppModel, KidsViewingRuntime, AdmissionTransport, URL) {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let transport = try AdmissionTransport(
+            base: policyJSON(model, enabled: true, revision: 1, commandID: UUID()),
+            loseIntentOnce: loseIntentOnce,
+            holdGrant: holdGrant
+        )
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        return (model, runtime, transport, directory)
+    }
+
     private func policyJSON(_ model: KidsAppModel, enabled: Bool, revision: Int, commandID: UUID) -> String {
         // Same shape as the separately hash-verified backend enforcement fixture,
         // scoped here to this synthetic host and simulator installation.
@@ -235,6 +398,330 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             }
         }
         return (model, accounts, configuration, directory)
+    }
+
+    func testGrantAdmissionBrowsesWithoutIntentAndRequiresBoundPolicyBeforeStart() async throws {
+        let (model, runtime, transport, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        let binding = try XCTUnwrap(model.binding)
+        try await model.acquireViewingLease()
+        XCTAssertTrue(model.permitsViewing(playback.item, binding: binding))
+        XCTAssertFalse(model.permitsViewingPlayback(playback, binding: binding))
+        var requests = await transport.requests
+        XCTAssertFalse(requests.contains { $0.url?.lastPathComponent == "playback-intents" })
+        try await model.admitViewingPlayback(playback, binding: binding)
+        XCTAssertEqual(driver.starts, 0)
+        XCTAssertTrue(model.permitsViewingPlayback(playback, binding: binding))
+        requests = await transport.requests
+        let index = try XCTUnwrap(requests.firstIndex { $0.url?.lastPathComponent == "playback-intents" })
+        XCTAssertEqual(requests[index + 1].httpMethod, "GET")
+        model.activePlayback = playback
+        playback.start()
+        driver.advance(0.25)
+        XCTAssertEqual(runtime.events.first?.kind, .started)
+        try await model.synchronizeViewingPolicy(runtime)
+        await model.stopPlayback(endSession: false)
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertEqual(driver.starts, 1)
+        XCTAssertEqual(driver.stops, 1)
+        XCTAssertNil(runtime.admission.intent)
+        XCTAssertNil(runtime.admittedIntentID)
+    }
+
+    func testGrantPauseSurrendersBeforeSameControllerResumeAndNewObservedStart() async throws {
+        let (model, runtime, transport, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+        let originalIntent = try XCTUnwrap(runtime.admittedIntentID)
+        model.activePlayback = playback
+        playback.start()
+        driver.advance(0.25)
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.toggle()
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertTrue(driver.frame.paused)
+        XCTAssertEqual(runtime.heldSessionID, playback.id)
+        XCTAssertNil(runtime.admission.intent)
+        XCTAssertNil(runtime.announcedSessionID)
+        let resume = try XCTUnwrap(model.requestViewingResume(playback, automatic: false))
+        let resumed = await resume.value
+        XCTAssertTrue(resumed)
+        XCTAssertTrue(model.activePlayback === playback)
+        XCTAssertEqual(driver.starts, 1)
+        XCTAssertEqual(driver.toggles, 2)
+        XCTAssertNotEqual(runtime.admittedIntentID, originalIntent)
+        XCTAssertNil(runtime.announcedSessionID)
+        driver.advance(1.25)
+        await model.tickViewingAdmission(runtime, at: DispatchTime.now().uptimeNanoseconds)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        XCTAssertEqual(started.playbackSessionID, playback.id.uuidString)
+        XCTAssertEqual(started.policyRevision, runtime.lease.policy?.revision)
+        let requests = await transport.requests
+        let paths = requests.compactMap { $0.url?.lastPathComponent }
+        let firstSurrender = try XCTUnwrap(paths.firstIndex(of: "playback-surrenders"))
+        let intents = paths.indices.filter { paths[$0] == "playback-intents" }
+        XCTAssertEqual(intents.count, 2)
+        XCTAssertLessThan(firstSurrender, intents[1])
+        await model.stopPlayback(endSession: false)
+        try await model.synchronizeViewingPolicy(runtime)
+    }
+
+    func testUnknownPreparedPostReplaysThenSurrendersBeforeRestartPolicyGet() async throws {
+        let (model, runtime, transport, directory) = try await grantHarness(loseIntentOnce: true)
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        do { try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+            XCTFail("Lost receipt must hold")
+        } catch { XCTAssertEqual(error as? ParentControlError, .http(503)) }
+        let captured = try XCTUnwrap(runtime.admission.intent)
+        XCTAssertFalse(captured.persisted)
+        await model.abandonPreparedViewing(playback)
+        let before = await transport.requests
+        let original = try XCTUnwrap(before.first { $0.url?.lastPathComponent == "playback-intents" })
+        let recovered = try KidsViewingRuntime(configuration: runtime.configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = recovered
+        try await model.synchronizeViewingPolicy(recovered)
+        let after = await transport.requests
+        let recovery = Array(after.dropFirst(before.count))
+        let retry = try XCTUnwrap(recovery.firstIndex { $0.url?.lastPathComponent == "playback-intents" })
+        let surrender = try XCTUnwrap(recovery.firstIndex { $0.url?.lastPathComponent == "playback-surrenders" })
+        let get = try XCTUnwrap(recovery.firstIndex { $0.httpMethod == "GET" })
+        XCTAssertEqual(recovery[retry].httpBody, original.httpBody)
+        XCTAssertLessThan(retry, surrender)
+        XCTAssertLessThan(surrender, get)
+        XCTAssertNil(recovered.admission.intent)
+        XCTAssertNil(recovered.admittedIntentID)
+        XCTAssertEqual(driver.starts, 0)
+        let boundReplies = await transport.boundReplies
+        XCTAssertEqual(boundReplies, 0)
+    }
+
+    func testBackgroundWhileFreshGrantIsPendingCannotStartPreparedController() async throws {
+        let (model, runtime, transport, _) = try await grantHarness(holdGrant: true)
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        let binding = try XCTUnwrap(model.binding)
+        let task = Task { try await model.admitViewingPlayback(playback, binding: binding) }
+        for await _ in transport.grantEntered.stream {
+            break
+        }
+        model.background()
+        await transport.releaseGrant()
+        do { try await task.value
+            XCTFail("Late grant cannot undo background hold")
+        } catch {}
+        await model.abandonPreparedViewing(playback)
+        XCTAssertEqual(driver.starts, 0)
+        XCTAssertFalse(model.permitsViewingPlayback(playback, binding: binding))
+        XCTAssertEqual(runtime.admission.intent?.abandoned, true)
+        model.foregroundViewingControls()
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertNil(runtime.admission.intent)
+    }
+
+    func testBufferRecoveryRequiresNewReadySignalWhileHeld() async throws {
+        let (model, runtime, _, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+        model.activePlayback = playback
+        playback.start()
+        driver.advance(0.25)
+        try await model.synchronizeViewingPolicy(runtime)
+        driver.frame.buffering = true
+        driver.subject.send(.updated)
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertEqual(runtime.admissionHold, .buffering)
+        XCTAssertTrue(driver.frame.paused)
+        driver.frame.buffering = false
+        driver.subject.send(.updated)
+        XCTAssertNil(runtime.admissionFlight)
+        XCTAssertEqual(driver.toggles, 0)
+        driver.frame.bufferReadySequence = 1
+        driver.subject.send(.updated)
+        let recovery = try XCTUnwrap(runtime.admissionFlight?.task)
+        let recovered = await recovery.value
+        XCTAssertTrue(recovered)
+        XCTAssertEqual(driver.toggles, 1)
+        XCTAssertEqual(driver.starts, 1)
+        XCTAssertTrue(model.activePlayback === playback)
+        await model.stopPlayback(endSession: false)
+        try await model.synchronizeViewingPolicy(runtime)
+    }
+
+    func testAdmissionJournalSurvivesUnknownPostWithoutCredentialsOrAuthority() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        let id = UUID()
+        try journal.stage(.init(commandID: id, expectedRevision: 2, sessionID: UUID().uuidString, itemID: "movie"))
+        let restarted = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        XCTAssertEqual(restarted.intent?.commandID, id)
+        XCTAssertEqual(restarted.intent?.expectedRevision, 2)
+        XCTAssertEqual(restarted.intent?.persisted, false)
+        XCTAssertEqual(restarted.intent?.abandoned, true)
+        let surrenderID = try XCTUnwrap(restarted.surrender?.commandID)
+        let restartedAgain = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        XCTAssertEqual(restartedAgain.surrender?.commandID, surrenderID)
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+        for case let file as URL in files where file.pathExtension == "json" {
+            let text = try String(contentsOf: file, encoding: .utf8)
+            XCTAssertFalse(text.contains(configuration.token))
+            XCTAssertFalse(text.contains("validUntil"))
+            XCTAssertFalse(text.contains("viewingAllowed"))
+        }
+    }
+
+    func testRemoteResumeRequestsFreshIntentWithoutDeadlockAndAcknowledgesDeliveryRevision() async throws {
+        let (model, runtime, transport, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+        model.activePlayback = playback
+        playback.start()
+        driver.advance(0.25)
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.toggle()
+        try await model.synchronizeViewingPolicy(runtime)
+        let deliveryRevision = try XCTUnwrap(runtime.lease.policy?.revision)
+        let commandID = UUID()
+        await transport.setResumeCommand(commandID, sessionID: playback.id.uuidString)
+        try await model.synchronizeViewingPolicy(runtime)
+        // The refresh returns before admission's separate policy flight. An
+        // inline wait here would deadlock on that very refresh.
+        for _ in 0 ..< 1000 {
+            if runtime.events.contains(where: { $0.commandID == commandID }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let acknowledgement = try XCTUnwrap(runtime.events.first { $0.commandID == commandID })
+        XCTAssertEqual(acknowledgement.kind, .commandApplied)
+        XCTAssertEqual(acknowledgement.policyRevision, deliveryRevision)
+        XCTAssertGreaterThan(try XCTUnwrap(runtime.lease.policy?.revision), deliveryRevision)
+        XCTAssertFalse(driver.frame.paused)
+        XCTAssertEqual(driver.starts, 1)
+        await model.stopPlayback(endSession: false)
+        try await model.synchronizeViewingPolicy(runtime)
+    }
+
+    func testRemoteResumeRechecksExpiredControlAfterFreshGrantWait() async throws {
+        let (model, runtime, transport, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+        model.activePlayback = playback
+        playback.start()
+        driver.advance(0.25)
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.toggle()
+        try await model.synchronizeViewingPolicy(runtime)
+        let commandID = UUID()
+        await transport.setResumeCommand(commandID, sessionID: playback.id.uuidString)
+        await transport.suspendNextGrant()
+        try await model.synchronizeViewingPolicy(runtime)
+        for await _ in transport.grantEntered.stream {
+            break
+        }
+        // Simulate expiration on the fresh server-clock response while the
+        // network was suspended, without a thirty-second wall-clock test.
+        await transport.setResumeCommand(commandID, sessionID: playback.id.uuidString, expired: true)
+        await transport.releaseGrant()
+        for _ in 0 ..< 1000 {
+            if runtime.events.contains(where: { $0.commandID == commandID }) {
+                break
+            }
+            try await Task.sleep(for: .milliseconds(1))
+        }
+        let acknowledgement = try XCTUnwrap(runtime.events.first { $0.commandID == commandID })
+        XCTAssertEqual(acknowledgement.kind, .commandFailed)
+        XCTAssertTrue(driver.frame.paused)
+        XCTAssertEqual(driver.toggles, 1) // Only the original explicit pause.
+        XCTAssertEqual(runtime.admission.intent?.abandoned, true)
+        await model.stopPlayback(endSession: false)
+        try await model.synchronizeViewingPolicy(runtime)
+    }
+
+    func testAdmissionJournalRejectsCorruptOrForeignScopeWithoutReplacingBytes() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        try journal.stage(.init(commandID: UUID(), expectedRevision: 2, sessionID: "controller", itemID: "movie"))
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+        let url = try XCTUnwrap(files.allObjects.compactMap { $0 as? URL }.first { $0.pathExtension == "json" })
+        var state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: url)) as? [String: Any])
+        var scope = try XCTUnwrap(state["scope"] as? [String: Any])
+        scope["child"] = "another-child"
+        state["scope"] = scope
+        let foreign = try JSONSerialization.data(withJSONObject: state)
+        try foreign.write(to: url)
+        XCTAssertThrowsError(try KidsAdmissionJournal(configuration: configuration, directory: directory))
+        XCTAssertEqual(try Data(contentsOf: url), foreign)
+        let corrupt = Data("{incomplete".utf8)
+        try corrupt.write(to: url)
+        XCTAssertThrowsError(try KidsAdmissionJournal(configuration: configuration, directory: directory))
+        XCTAssertEqual(try Data(contentsOf: url), corrupt)
+    }
+
+    func testAdmissionDrainRetiresCompletedSharedFlightBeforeSendingStagedIntent() async throws {
+        let (model, runtime, _, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        runtime.admissionController = playback
+        try runtime.admission.stage(.init(
+            commandID: UUID(),
+            expectedRevision: 1,
+            sessionID: playback.id.uuidString,
+            itemID: playback.item.id
+        ))
+        let finished = Task<Void, Error> {}
+        try await finished.value
+        runtime.policyFlight = (UUID(), finished)
+        try await model.drainViewingAdmission(runtime)
+        XCTAssertEqual(runtime.admission.intent?.persisted, true)
+        XCTAssertEqual(runtime.lease.policy?.playbackIntentID, runtime.admission.intent?.commandID)
+        XCTAssertNil(runtime.policyFlight)
+        await model.abandonPreparedViewing(playback)
+        try await model.synchronizeViewingPolicy(runtime)
+    }
+
+    func testResumedGrantWithoutNewPlaybackCannotRelabelOldTerminalEvidence() async throws {
+        let (model, runtime, transport, _) = try await grantHarness()
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        let binding = try XCTUnwrap(model.binding)
+        try await model.admitViewingPlayback(playback, binding: binding)
+        model.activePlayback = playback
+        playback.start()
+        driver.advance(0.25)
+        try await model.synchronizeViewingPolicy(runtime)
+        let observedRevision = try XCTUnwrap(runtime.normalGrant?.revision)
+        driver.frame.buffering = true
+        driver.subject.send(.updated)
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertNil(runtime.announcedSessionID)
+        await transport.suspendNextGrant()
+        driver.frame.buffering = false
+        driver.frame.bufferReadySequence = 1
+        driver.subject.send(.updated)
+        let recovery = try XCTUnwrap(runtime.admissionFlight?.task)
+        for await _ in transport.grantEntered.stream {
+            break
+        }
+        // Readiness can disappear during an admission round trip. The grant
+        // exists, but the final automatic-resume check must hold transport.
+        driver.frame.preparing = true
+        await transport.releaseGrant()
+        let resumed = await recovery.value
+        XCTAssertFalse(resumed)
+        XCTAssertGreaterThan(try XCTUnwrap(runtime.lease.policy?.revision), observedRevision)
+        XCTAssertEqual(runtime.normalGrant?.revision, observedRevision)
+        XCTAssertTrue(driver.frame.paused)
+        await model.stopPlayback(endSession: false)
+        let stop = try XCTUnwrap(runtime.events.first { $0.kind == .stopped })
+        XCTAssertEqual(stop.policyRevision, observedRevision)
+        XCTAssertFalse(runtime.events.contains { $0.kind == .started })
+        try await model.synchronizeViewingPolicy(runtime)
     }
 
     func testReceiverActivationAndExplicitReleaseUseDurableHostState() async throws {
@@ -294,7 +781,13 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         try await model.synchronizeViewingPolicy(runtime)
         XCTAssertTrue(runtime.configuration.requiresPlaybackGrants)
         XCTAssertEqual(accounts.receiver?.requiresPlaybackGrants, true)
-        XCTAssertTrue(model.viewingHeld)
+        XCTAssertFalse(model.viewingHeld)
+        let movie = KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies")
+        XCTAssertTrue(try model.permitsViewing(movie, binding: XCTUnwrap(model.binding)))
+        XCTAssertFalse(try model.permitsViewingPlayback(
+            controller(movie, driver: SuspendedDriver(), model: model),
+            binding: XCTUnwrap(model.binding)
+        ))
         do { try await model.synchronizeViewingPolicy(runtime)
             XCTFail("A learned grant requirement cannot downgrade on missing fields")
         } catch { XCTAssertEqual(error as? ParentControlError, .malformedResponse) }

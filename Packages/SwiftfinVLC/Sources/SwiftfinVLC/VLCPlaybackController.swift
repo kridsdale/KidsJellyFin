@@ -449,7 +449,7 @@ public final class VLCPlaybackController {
             }
             onEvent?(.state(frame))
         case .buffer:
-            guard native.state == .playing else { return }
+            guard native.state == .playing || native.state == .paused else { return }
             if native.bufferFill < 0.9 {
                 buffering = true
             } else if native.bufferFill >= 1 {

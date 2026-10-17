@@ -70,12 +70,12 @@ five-second foreground poll is separate from the one-second enforcement watchdog
 so slow metadata/player preparation does not stop expiry enforcement. New playback
 joins an in-flight refresh rather than spending stale permission after a session ends.
 
-### Open daily-budget contract: idle polling and playback intent
+### Explicit playback admission and daily-budget accounting
 
 Source audit confirmed that the root receiver monitor polls foreground policy every
 five seconds on home/browse, during preparation, and while paused/buffering, not only
 during operational playback. Backgrounding suspends it. The backend agent identified
-that its generic policy GET currently allocates a30-second held budget whenever
+that its earlier generic policy GET allocated a30-second held budget whenever
 global viewing is allowed. Together these source behaviors can reserve allowance
 without actual viewing and repeatedly age unknown reservations into unconfirmed.
 This is not a reported live incident: Parents/daily-budget enforcement is uninstalled.
@@ -84,14 +84,14 @@ Daily-budget commissioning therefore additionally requires a separately gated,
 explicit playback-intent/surrender contract. Browse authorization must not reserve
 spendable viewing time. Actual playback must obtain a bounded reservation; offline
 unknown intervals must not be refunded merely from missing reports/idle heartbeat.
-Preparation can expose the actual controller/item before activePlayback assignment
-and driver.start, providing a possible scoped admission seam. Resume, automatic
-buffer recovery and surrender need consistent authority handling too. Keep
-daily-budget readiness off pending frozen transaction fixtures and native lifecycle
-integration. Unknown past allowance cannot be refunded as an idle-polling workaround.
+The receiver now exposes the actual prepared controller/item before activePlayback
+assignment and driver.start, and uses this seam for admission. Resume, automatic
+buffer recovery and surrender share the same coordinator. Daily-budget readiness
+remains off pending separate runtime commissioning. Unknown past allowance cannot
+be refunded as an idle-polling workaround.
 
-The frozen PG-v1-draft3 `playback-grants-v1` wire adapter is implemented and unit-tested
-but is not called by the receiver runtime. Policy DTOs add optional
+The frozen PG-v1-draft3 `playback-grants-v1` wire adapter is implemented, tested and
+called by the receiver runtime when required mode is active. Policy DTOs add optional
 `playbackIntentRequired`, `playbackIntentAvailable`, `playbackIntentID`,
 `leasePlaybackSessionID` and `leaseItemID`. Browse availability is not viewing
 permission. Intent POST uses exactly commandID/deviceID/childUserID/expectedRevision/
@@ -112,10 +112,9 @@ Auto-renewal retains one intent generation. Explicit resume creates a new intent
 even for the same controller; delayed surrender must not revoke that newer
 generation. The player library now offers a neutral optional onResumeRequested
 callback, tested to leave paused transport unchanged until the host acts. It has
-no HTTP/account dependencies and remains unconfigured. Full preparation/resume/
-buffer-readiness/surrender sequencing and backend capacity/retirement proof remain
-unfinished. This plumbing alone does not fix the
-daily-budget gap or establish capability readiness.
+no HTTP/account dependencies. The application configures it only in activated
+required mode. Backend transaction fixtures and native fake-driver tests validate
+the source sequence; they do not establish runtime capability readiness.
 
 Required-mode validation is now implemented: all five keys must be present, with
 explicit nulls distinguishable from missing nullable bindings. Policy round trips
@@ -129,9 +128,9 @@ Read-only catalog eligibility has a separate local30-second freshness bound and
 never substitutes for transport authority. The exact playback predicate additionally
 requires the locally admitted intent ID and raw controller/item match. IntentAvailable
 may be false while the existing own reservation still permits playback. Prestart,
-grant capture and watchdog paths now use that strict predicate. No runtime admission
-flow sets the local admitted ID yet, so this is fail-closed plumbing, not a completed
-explicit-grant mode. The pure browse predicate also awaits catalog/UI lifecycle wiring.
+grant capture and watchdog paths use that strict predicate. Only the coordinator's
+fresh exact policy check sets the locally admitted ID. Catalog, episode and shuffle
+selection use the separate browse predicate before any viewing reservation.
 The final transport gate also rejects a known reporting fault, closing the race
 where metadata/player preparation finishes after an integrity fault was detected.
 
@@ -140,7 +139,7 @@ revision_conflict/active_intent_exists/controller_mismatch prove a new intent wa
 refused without commitment. Idempotency/epoch/subject/unknown/malformed conflicts
 do not. Helpers do not refresh/retry/rewrite action IDs automatically.
 
-The remaining native integration sequence is:
+The implemented native integration sequence is:
 
 1. Persist captured intent/surrender requests before POST in a scope-specific private
    application-support ledger, then serialize them with the existing policy flight.
@@ -172,7 +171,32 @@ The remaining native integration sequence is:
 7. Replay frozen backend transactions and test idle, prepared, playing, paused,
    buffering, unknown/retried POSTs, same-controller resume, stale surrender, scope/
    background races, clock/reset boundaries and restart. Keep capabilities off until
-   separate source/runtime commissioning gates pass.
+   separate source/runtime commissioning gates pass. The synthetic tests cover
+   pause/resume, readiness while held, lost POST receipts and background races;
+   household and physical-device trials remain deferred.
+
+`KidsAdmissionJournal` stores only the captured mutation identities and original
+revision, not tokens, grants or playback authority. Its scope includes service,
+server, child and installation; files are bounded, owner-only and synchronized
+before sending. Corrupt or foreign-scope state fails closed. Restart marks an
+orphaned preparation abandoned and replays its original unknown POST before exact
+surrender, before a policy GET could allocate a new ALLOW. It never reconstructs
+an operational player. Unpairing does not silently erase this accounting state.
+
+Local pause revocation overrides an otherwise valid cached grant. Actual transport
+evidence drains FIFO before surrender; a resume then creates a new generation on
+the same controller. That generation emits a new started report only after actual
+unpaused forward-clock observation. Remote Resume schedules outside the policy
+flight, rechecks its command expiry after asynchronous waits, and acknowledges the
+original delivery revision rather than a newer playback grant revision.
+
+Buffer recovery additionally requires a new native buffer-fill readiness transition
+while held, on the same already operational controller/item. A paused state or a
+buffering boolean becoming false alone cannot trigger it. Recovery is limited to
+three attempts with failure backoff; stable playback resets that budget. If the
+native SDK does not provide readiness while paused, manual Resume remains the
+fallback. Stop sets its local terminal flag before pause callbacks, awaits native
+drain, then surrenders; duplicate terminal reports are bounded and suppressed.
 
 The accepted accounting refinement distinguishes unknown past from future capacity:
 at verified surrender time on the server, only unused future capacity attributable
@@ -181,7 +205,9 @@ held/attributable uncertainty. Past unknown time and confirmed usage remain char
 Expired/unknown-period/unproven reservations release no future capacity; clock,
 restore and integrity guards remain mandatory. A reported5s, server-elapsed7s,
 30-second grant should retain used5/pastUnknown2 while releasing future23, rather
-than consuming30 seconds on each confirmed pause. Server transaction proof is pending.
+than consuming30 seconds on each confirmed pause. The saved backend transaction
+fixture proves this partition in its synthetic HTTP/auth/SQLite run; it does not
+prove installed runtime behavior.
 
 An activated TV starts held until fresh permission arrives. Missing usage reports
 remain a backend reservation/accounting concern, not an assumed refund. A full
@@ -505,12 +531,13 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 59 passed |
+| KidsParentControl transport/feature/fixture tests | 60 passed |
 | KidsViewingControl pure policy tests | 22 passed |
 | KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 39 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 50 passed |
 | KidsPlaybackSession lifecycle/passive observations/neutral resume admission | 21 passed |
+| VLCPlaybackOwnershipTests, fake native engine on tvOS Simulator | 21 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
 | Architecture-checker unit tests | 25 passed |
@@ -537,23 +564,31 @@ account, TV experience and host-adapter sources so a build can be tied to this c
 Release simulator configurations also passed after the optional admission adapter
 update; no device signing,
 archive export, upload or physical installation follows from that result.
-The subsequent control-only ambient
-update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
-37 selected application-boundary tests passed after the reporting lifecycle/recovery update.
-New cases cover no-start preparation/heartbeat/stop suppression, actual driver
-readiness before usage, zero-elapsed transport transitions, residual old-grant
-flush before renewal, stopping a legacy controller on activation-storage failure,
-byte-identical late-ACK outage recovery before fetching/acknowledging release,
-unconfirmed-start retirement before fresh policy, replacement-session protection,
-malformed reset receipt retention/reporting fault, and full recovery drainage across
-three bounded send batches without an intermediate policy GET.
-The TV build's embedded
-`KidsEvidenceImplementationRevision` exactly matched the final source digest:
-`8737e726bf7725bda37c4c014904a4bfd040bcb2b629e4c5f43c37d9d4e67eb8`.
-The latest39-test pass covers learned-mode persistence, exact prestart binding and
-the reporting-fault veto, with distinct admission error handling compiled too. Its
-embedded value matches final formatted source exactly. Full admission/resume remains unwired.
-This establishes source identity rather than a budget-admission runtime trial.
+The TV app is rebuilt through KidsValidation with `ONLY_ACTIVE_ARCH=NO`. Application
+cases cover preparation without operational reports, real fake-driver readiness
+before usage, old-grant flush before renewal, secure-store failure, full bounded
+evidence drainage before fresh policy, learned required-mode persistence and the
+reporting-fault veto. Admission cases additionally cover zero-reservation browsing,
+fresh exact binding before start, same-controller pause/surrender/resume with a new
+observed started event, unknown POST replay and retirement before restart GET,
+background during pending grant, actual buffer-readiness recovery, credential-free
+durability, corrupt/foreign journal rejection and remote Resume expiry/ACK provenance.
+Source fingerprints identify these builds; they do not certify a runtime budget trial.
+After the final source changes and formatting, the built TV app's
+`KidsEvidenceImplementationRevision` matches source SHA-256
+`9e221e392a933a8ac1c7f5821fde9bee7f0a7cc338c8744d63ec41264cf00cf1`.
+The shared-flight regression ensures a completed refresh is retired before a newly
+staged intent must be sent. A further readiness-loss test holds a granted resume
+before transport and preserves the earlier observed generation for terminal evidence;
+neither receipt nor admission alone can relabel it as newly observed playback.
+
+The separately preserved backend `shuffle-context-transaction.json` is10,470 bytes,
+SHA-256 `16d96994be1ff33c5b32930767e324761b46c76480b7d3358920f7d152c70559`.
+Native API replay verifies fresh empty context, durable positive viewing facts,
+explicitly incomplete stale/unknown intervals and subsequent independent positive
+userdata. Metadata enrichment preserves used5/unknown30/reserved0; it never refunds
+quota. The sender reports425 joined source tests at checkpoint `0e239f5`. These are
+server-executed synthetic tests, not installed service or family playback evidence.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

@@ -70,6 +70,8 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
     private let now: @MainActor () -> Date
     private let monotonicNow: @MainActor () -> UInt64
     private var lastObservedPaused: Bool?
+    private var lastDelegatePaused: Bool?
+    private var lastBufferReadySequence: UInt64 = 0
     private var lastObservedBuffering: Bool?
     private var observedNativeEnd = false
 
@@ -152,12 +154,17 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
                 observeTransport(paused: paused, position: clock)
             }
             guard began else { return }
+            let newlyPaused = paused && lastDelegatePaused != true
+            lastDelegatePaused = paused
             reveal()
             if paused {
                 if clock.isFinite && !terminal {
                     seconds = max(0, clock)
                 }
                 model?.playbackCheckpoint(self, seconds: seconds)
+                if newlyPaused {
+                    model?.playbackPaused(self)
+                }
             }
         case let .failure(error):
             if onPassiveObservation != nil {
@@ -318,8 +325,13 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         }
         let currentlyBuffering = frame.buffering || frame.preparing || (!began && !recovery) ||
             (terminal && began && !finished && !frame.reachedEnd)
+        let bufferReadyAdvanced = frame.bufferReadySequence > lastBufferReadySequence
+        lastBufferReadySequence = frame.bufferReadySequence
         if buffering != currentlyBuffering {
             buffering = currentlyBuffering
+            model?.playbackBufferingChanged(self, buffering: currentlyBuffering)
+        } else if bufferReadyAdvanced {
+            model?.playbackBufferingChanged(self, buffering: currentlyBuffering)
         }
         observeBuffering(currentlyBuffering, position: time)
     }
@@ -374,13 +386,14 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         if let stopFlight {
             await stopFlight.value
         } else if !stopped {
+            stopped = true
+            model?.playbackWillStop(self)
             if onPassiveObservation != nil {
                 observe(.stopRequested, position: driver.frame.seconds, cancellationRequested: Task.isCancelled)
             }
             if began && !finished {
                 model?.playbackCheckpoint(self, seconds: seconds)
             }
-            stopped = true
             eventSubscription?.cancel()
             eventSubscription = nil
             if model?.isPreview != true {
@@ -397,6 +410,7 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
             tickTask?.cancel()
         }
         if completedStop {
+            model?.playbackDidStop(self)
             observe(.stopCompleted, cancellationRequested: Task.isCancelled)
         }
     }

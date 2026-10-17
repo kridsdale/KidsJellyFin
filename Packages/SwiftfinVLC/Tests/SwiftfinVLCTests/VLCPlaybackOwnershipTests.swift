@@ -450,7 +450,7 @@ final class VLCPlaybackOwnershipTests: XCTestCase {
         XCTAssertFalse(player.frame.applyingStartPosition)
     }
 
-    func testBufferingCannotOverridePausedTransportAndMetricsStayNumeric() {
+    func testBufferReadinessWhilePausedDoesNotResumeTransportAndMetricsStayNumeric() {
         let engine = Engine(), player = VLCPlaybackController(engine: engine), generation = UUID()
         player.open(request(start: .zero), generation: generation)
         engine.frame.state = .playing
@@ -461,8 +461,14 @@ final class VLCPlaybackOwnershipTests: XCTestCase {
         XCTAssertTrue(player.frame.buffering)
         engine.frame.state = .paused
         player.observed(.state, generation: generation)
+        XCTAssertFalse(player.frame.buffering)
+        player.observed(.buffer, generation: generation)
+        XCTAssertTrue(player.frame.buffering)
+        XCTAssertEqual(player.frame.state, .paused)
+        engine.frame.bufferFill = 1
         player.observed(.buffer, generation: generation)
         XCTAssertFalse(player.frame.buffering)
+        XCTAssertEqual(player.frame.state, .paused)
         XCTAssertEqual(player.frame.displayedPictures, 2)
         XCTAssertEqual(player.frame.videoSize.width, 720)
         XCTAssertFalse(String(describing: request()).contains("private-fixture"))

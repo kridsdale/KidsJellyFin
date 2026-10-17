@@ -23,6 +23,9 @@ public struct KidsPlaybackFrame: Sendable {
     public var terminal = false
     public var reachedEnd = false
     public var displayedPictures = 0
+    /// Advances only when the driver observes a new native buffer-ready transition.
+    /// A paused state or stale buffer percentage alone is not readiness.
+    public var bufferReadySequence: UInt64 = 0
     public var seekable = false
     public init() {}
 }
@@ -63,6 +66,17 @@ public protocol KidsPlaybackSessionDelegate: AnyObject {
     func stopPlaybackFromSession(_ session: KidsPlaybackController) async
     func retryPlayback(_ session: KidsPlaybackController, position: Double)
     func playbackFailed(_ session: KidsPlaybackController, error: KidsPlaybackFailure)
+    func playbackWillStop(_ session: KidsPlaybackController)
+    func playbackDidStop(_ session: KidsPlaybackController)
+    func playbackPaused(_ session: KidsPlaybackController)
+    func playbackBufferingChanged(_ session: KidsPlaybackController, buffering: Bool)
+}
+
+public extension KidsPlaybackSessionDelegate {
+    func playbackWillStop(_ session: KidsPlaybackController) {}
+    func playbackDidStop(_ session: KidsPlaybackController) {}
+    func playbackPaused(_ session: KidsPlaybackController) {}
+    func playbackBufferingChanged(_ session: KidsPlaybackController, buffering: Bool) {}
 }
 
 @MainActor
