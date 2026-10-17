@@ -65,6 +65,7 @@ public struct KidsReceiverConfiguration: Codable, Equatable, Sendable, CustomStr
     public let token: String
     public let activated: Bool
     public let latchedControlID: UUID?
+    public let requiresPlaybackGrants: Bool
     public init(
         serviceURL: URL,
         serverID: String,
@@ -72,7 +73,8 @@ public struct KidsReceiverConfiguration: Codable, Equatable, Sendable, CustomStr
         deviceID: UUID,
         token: String,
         activated: Bool = false,
-        latchedControlID: UUID? = nil
+        latchedControlID: UUID? = nil,
+        requiresPlaybackGrants: Bool = false
     ) {
         self.serviceURL = serviceURL
         self.serverID = serverID
@@ -81,6 +83,30 @@ public struct KidsReceiverConfiguration: Codable, Equatable, Sendable, CustomStr
         self.token = token
         self.activated = activated
         self.latchedControlID = latchedControlID
+        self.requiresPlaybackGrants = requiresPlaybackGrants
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case serviceURL
+        case serverID
+        case childUserID
+        case deviceID
+        case token
+        case activated
+        case latchedControlID
+        case requiresPlaybackGrants
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        serviceURL = try values.decode(URL.self, forKey: .serviceURL)
+        serverID = try values.decode(String.self, forKey: .serverID)
+        childUserID = try values.decode(String.self, forKey: .childUserID)
+        deviceID = try values.decode(UUID.self, forKey: .deviceID)
+        token = try values.decode(String.self, forKey: .token)
+        activated = try values.decode(Bool.self, forKey: .activated)
+        latchedControlID = try values.decodeIfPresent(UUID.self, forKey: .latchedControlID)
+        requiresPlaybackGrants = try values.decodeIfPresent(Bool.self, forKey: .requiresPlaybackGrants) ?? false
     }
 
     public var description: String {

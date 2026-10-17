@@ -1078,7 +1078,8 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                         )
                     }
                     guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding,
-                          self.startGeneration == generation, self.permitsViewing(verified, binding: binding)
+                          self.startGeneration == generation, self.permitsViewing(verified, binding: binding),
+                          self.permitsViewingPlayback(controller, binding: binding)
                     else { await controller.stop()
                         trace?.finish(.cancelled)
                         return

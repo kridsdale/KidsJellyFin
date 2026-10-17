@@ -275,6 +275,70 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         XCTAssertFalse(model.permitsViewing(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), binding: binding))
     }
 
+    func testRequiredGrantModePersistsAndRejectsMissingFieldsOnLaterPolicy() async throws {
+        let (model, accounts, configuration, directory) = try receiverHarness(activated: true)
+        let json = policyJSON(model, enabled: true, revision: 2, commandID: UUID())
+        let decoded = try JSONSerialization.jsonObject(with: Data(json.utf8))
+        var fields = try XCTUnwrap(decoded as? [String: Any])
+        fields["playbackIntentRequired"] = true
+        fields["playbackIntentAvailable"] = true
+        fields["playbackIntentID"] = NSNull()
+        fields["leasePlaybackSessionID"] = NSNull()
+        fields["leaseItemID"] = NSNull()
+        fields["viewingAllowed"] = false
+        fields["validUntil"] = fields["serverTime"]
+        let idle = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: fields), encoding: .utf8))
+        let transport = ReceiverTransport(policies: [idle, policyJSON(model, enabled: true, revision: 3, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertTrue(runtime.configuration.requiresPlaybackGrants)
+        XCTAssertEqual(accounts.receiver?.requiresPlaybackGrants, true)
+        XCTAssertTrue(model.viewingHeld)
+        do { try await model.synchronizeViewingPolicy(runtime)
+            XCTFail("A learned grant requirement cannot downgrade on missing fields")
+        } catch { XCTAssertEqual(error as? ParentControlError, .malformedResponse) }
+        XCTAssertTrue(runtime.reportingFault)
+        XCTAssertTrue(runtime.configuration.requiresPlaybackGrants)
+        XCTAssertEqual(runtime.lease.policy?.revision, 2)
+    }
+
+    func testBoundPolicyCannotAuthorizeUnrequestedIntentOrDifferentController() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let movie = KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies")
+        let prepared = controller(movie, driver: SuspendedDriver(), model: model)
+        let intentID = UUID()
+        let decoded = try JSONSerialization.jsonObject(with: Data(policyJSON(model, enabled: true, revision: 2, commandID: UUID()).utf8))
+        var fields = try XCTUnwrap(decoded as? [String: Any])
+        fields["playbackIntentRequired"] = true
+        fields["playbackIntentAvailable"] = false
+        fields["playbackIntentID"] = intentID.uuidString
+        fields["leasePlaybackSessionID"] = prepared.id.uuidString
+        fields["leaseItemID"] = movie.id
+        let json = try XCTUnwrap(String(data: JSONSerialization.data(withJSONObject: fields), encoding: .utf8))
+        let runtime = try KidsViewingRuntime(
+            configuration: configuration,
+            transport: ReceiverTransport(policies: [json]),
+            ledgerDirectory: directory
+        )
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        let binding = try XCTUnwrap(model.binding)
+        XCTAssertFalse(model.permitsViewingPlayback(prepared, binding: binding))
+        // Inject the result of a future verified admission flow; the current
+        // scaffold does not issue intents or set this state by itself.
+        runtime.admittedIntentID = intentID
+        XCTAssertTrue(model.permitsViewingPlayback(prepared, binding: binding))
+        runtime.reportingFault = true
+        XCTAssertFalse(model.permitsViewingPlayback(prepared, binding: binding))
+        runtime.reportingFault = false
+        let other = controller(movie, driver: SuspendedDriver(), model: model)
+        XCTAssertFalse(model.permitsViewingPlayback(other, binding: binding))
+        runtime.admittedIntentID = UUID()
+        XCTAssertFalse(model.permitsViewingPlayback(prepared, binding: binding))
+        XCTAssertFalse(prepared.hasBegunPlayback)
+    }
+
     func testBootstrapHeartbeatConflictCanRecoverWithoutDiscardingUsage() async throws {
         let (model, _, configuration, directory) = try receiverHarness()
         let transport = ReceiverTransport(

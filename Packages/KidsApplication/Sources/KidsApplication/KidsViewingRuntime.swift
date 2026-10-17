@@ -36,6 +36,7 @@ final class KidsViewingRuntime {
     var lastProgressNS: UInt64 = 0
     var lastControlID: UUID?
     var normalGrant: (sessionID: UUID, revision: Int)?
+    var admittedIntentID: UUID?
     var announcedSessionID: UUID?
     var lastTransportState: ReceiverEvent.Kind?
     private var claimedSession: UUID?
@@ -48,7 +49,12 @@ final class KidsViewingRuntime {
         ledgerDirectory: URL? = nil
     ) throws {
         self.configuration = configuration
-        lease = ViewingLease(serverID: configuration.serverID, childUserID: configuration.childUserID, deviceID: configuration.deviceID)
+        lease = ViewingLease(
+            serverID: configuration.serverID,
+            childUserID: configuration.childUserID,
+            deviceID: configuration.deviceID,
+            requiresPlaybackGrants: configuration.requiresPlaybackGrants
+        )
         api = try KidsReceiverAPI(
             server: ParentServer(configuration.serviceURL.absoluteString),
             serverID: configuration.serverID,
@@ -156,7 +162,8 @@ extension KidsAppModel {
             deviceID: deviceID,
             token: secret,
             activated: previous?.activated ?? false,
-            latchedControlID: previous?.latchedControlID
+            latchedControlID: previous?.latchedControlID,
+            requiresPlaybackGrants: previous?.requiresPlaybackGrants ?? false
         )
         try accounts.storeReceiverConfiguration(configuration)
         try prepareViewingControls(binding: binding)
@@ -184,9 +191,24 @@ extension KidsAppModel {
     func rememberViewingGrant(_ controller: KidsPlaybackController) {
         guard let runtime = viewingRuntime, runtime.configuration.activated,
               runtime.ambientSessionID != controller.id, let binding,
-              runtime.lease.permits(controller.item, binding: binding, at: DispatchTime.now().uptimeNanoseconds),
+              permitsViewingPlayback(controller, binding: binding),
               let revision = runtime.lease.policy?.revision else { return }
         runtime.normalGrant = (controller.id, revision)
+    }
+
+    func permitsViewingPlayback(_ controller: KidsPlaybackController, binding: KidsBinding) -> Bool {
+        guard let runtime = viewingRuntime, runtime.configuration.activated else { return KidsEligibility.permits(
+            controller.item,
+            binding: binding
+        ) }
+        guard !viewingHeld, !ambientMode, !runtime.reportingFault else { return false }
+        return runtime.lease.permitsPlayback(
+            controller.item,
+            binding: binding,
+            intentID: runtime.admittedIntentID,
+            sessionID: controller.id.uuidString,
+            at: DispatchTime.now().uptimeNanoseconds
+        )
     }
 
     func filteredForViewing(_ items: [KidsItem], binding: KidsBinding) -> [KidsItem] {
@@ -332,7 +354,10 @@ extension KidsAppModel {
               binding.serverID == runtime.configuration.serverID,
               binding.userID == runtime.configuration.childUserID else { return }
         var nextLease = runtime.lease
-        try nextLease.accept(policy, requestStartedNS: started, receivedNS: DispatchTime.now().uptimeNanoseconds)
+        do { try nextLease.accept(policy, requestStartedNS: started, receivedNS: DispatchTime.now().uptimeNanoseconds) }
+        catch { runtime.reportingFault = true
+            throw error
+        }
         if let controller = activePlayback {
             flushViewingProgress(controller)
         }
@@ -358,7 +383,7 @@ extension KidsAppModel {
                 rememberViewingGrant(controller)
                 if runtime.ambientSessionID != controller.id, controller.hasBegunPlayback, !controller.hasEndedPlayback,
                    runtime.announcedSessionID != controller.id,
-                   runtime.lease.permits(controller.item, binding: binding, at: DispatchTime.now().uptimeNanoseconds)
+                   permitsViewingPlayback(controller, binding: binding)
                 {
                     queueViewingEvent(.started, controller: controller)
                 }
@@ -375,7 +400,8 @@ extension KidsAppModel {
         let activate = ViewingLease.nextActivation(current: runtime.configuration.activated, policy: policy)
         let old = runtime.configuration
         let latch = policy.policyControl?.kind == .release ? nil : old.latchedControlID
-        if activate != old.activated || latch != old.latchedControlID {
+        let requiresGrants = old.requiresPlaybackGrants || runtime.lease.requiresPlaybackGrants
+        if activate != old.activated || latch != old.latchedControlID || requiresGrants != old.requiresPlaybackGrants {
             let next = KidsReceiverConfiguration(
                 serviceURL: old.serviceURL,
                 serverID: old.serverID,
@@ -383,7 +409,8 @@ extension KidsAppModel {
                 deviceID: old.deviceID,
                 token: old.token,
                 activated: activate,
-                latchedControlID: latch
+                latchedControlID: latch,
+                requiresPlaybackGrants: requiresGrants
             )
             do { try accounts?.storeReceiverConfiguration(next) }
             catch {
@@ -428,7 +455,7 @@ extension KidsAppModel {
                 if !runtime.lease.allowsNormalViewing(at: now) || runtime.reportingFault {
                     await enterViewingHold(latchControl: runtime.lease.deadlineReached(at: now))
                 } else if let controller = activePlayback, runtime.ambientSessionID != controller.id,
-                          let binding, !runtime.lease.permits(controller.item, binding: binding, at: now)
+                          let binding, !permitsViewingPlayback(controller, binding: binding)
                 {
                     await stopPlayback()
                 }
@@ -463,7 +490,8 @@ extension KidsAppModel {
                 deviceID: old.deviceID,
                 token: old.token,
                 activated: true,
-                latchedControlID: id
+                latchedControlID: id,
+                requiresPlaybackGrants: old.requiresPlaybackGrants
             )
             do { try accounts?.storeReceiverConfiguration(next)
                 runtime.configuration = next

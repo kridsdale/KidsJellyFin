@@ -26,6 +26,24 @@ public struct ReceiverEventConflict: Error, Equatable, Sendable, LocalizedError 
     }
 }
 
+/// Admission refusals are distinct from event receipt conflicts. Only the
+/// frozen definite refusal codes prove a new intent was not committed.
+public struct ReceiverMutationConflict: Error, Equatable, Sendable, LocalizedError {
+    public let code: String?
+    public init(code: String?) {
+        self.code = code
+    }
+
+    public var isDefiniteIntentRefusal: Bool {
+        guard let code else { return false }
+        return ["revision_conflict", "active_intent_exists", "controller_mismatch"].contains(code)
+    }
+
+    public var errorDescription: String? {
+        "Playback permission could not be confirmed."
+    }
+}
+
 public struct ReceiverPolicy: Codable, Equatable, Sendable {
     public struct PolicyControl: Codable, Equatable, Sendable {
         public enum Kind: String, Codable, Sendable { case countdown, finishEpisode, release }
@@ -68,6 +86,99 @@ public struct ReceiverPolicy: Codable, Equatable, Sendable {
     public let shuffleContext: ShuffleContext?
     public let policyControl: PolicyControl?
     public let commands: [Command]
+    public let hasPlaybackGrantFields: Bool
+
+    private enum CodingKeys: String, CodingKey {
+        case serverID
+        case childUserID
+        case deviceID
+        case revision
+        case enforcementEnabled
+        case playbackIntentRequired
+        case playbackIntentAvailable
+        case playbackIntentID
+        case leasePlaybackSessionID
+        case leaseItemID
+        case serverTime
+        case validUntil
+        case viewingAllowed
+        case blockedShowIDs
+        case blockedEpisodeIDs
+        case deadline
+        case finishPlaybackSessionID
+        case birdItemID
+        case shuffle
+        case shuffleContext
+        case policyControl
+        case commands
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        serverID = try values.decode(String.self, forKey: .serverID)
+        childUserID = try values.decode(String.self, forKey: .childUserID)
+        deviceID = try values.decode(String.self, forKey: .deviceID)
+        revision = try values.decode(Int.self, forKey: .revision)
+        enforcementEnabled = try values.decodeIfPresent(Bool.self, forKey: .enforcementEnabled)
+        playbackIntentRequired = try values.decodeIfPresent(Bool.self, forKey: .playbackIntentRequired)
+        playbackIntentAvailable = try values.decodeIfPresent(Bool.self, forKey: .playbackIntentAvailable)
+        playbackIntentID = try values.decodeIfPresent(UUID.self, forKey: .playbackIntentID)
+        leasePlaybackSessionID = try values.decodeIfPresent(String.self, forKey: .leasePlaybackSessionID)
+        leaseItemID = try values.decodeIfPresent(String.self, forKey: .leaseItemID)
+        hasPlaybackGrantFields = [
+            CodingKeys.playbackIntentRequired,
+            .playbackIntentAvailable,
+            .playbackIntentID,
+            .leasePlaybackSessionID,
+            .leaseItemID
+        ].allSatisfy(values.contains)
+        serverTime = try values.decode(Date.self, forKey: .serverTime)
+        validUntil = try values.decode(Date.self, forKey: .validUntil)
+        viewingAllowed = try values.decode(Bool.self, forKey: .viewingAllowed)
+        blockedShowIDs = try values.decode([String].self, forKey: .blockedShowIDs)
+        blockedEpisodeIDs = try values.decode([String].self, forKey: .blockedEpisodeIDs)
+        deadline = try values.decodeIfPresent(Date.self, forKey: .deadline)
+        finishPlaybackSessionID = try values.decodeIfPresent(String.self, forKey: .finishPlaybackSessionID)
+        birdItemID = try values.decodeIfPresent(String.self, forKey: .birdItemID)
+        shuffle = try values.decode(ParentShufflePreferences.self, forKey: .shuffle)
+        shuffleContext = try values.decodeIfPresent(ShuffleContext.self, forKey: .shuffleContext)
+        policyControl = try values.decodeIfPresent(PolicyControl.self, forKey: .policyControl)
+        commands = try values.decode([Command].self, forKey: .commands)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(serverID, forKey: .serverID)
+        try values.encode(childUserID, forKey: .childUserID)
+        try values.encode(deviceID, forKey: .deviceID)
+        try values.encode(revision, forKey: .revision)
+        try values.encodeIfPresent(enforcementEnabled, forKey: .enforcementEnabled)
+        if hasPlaybackGrantFields {
+            try values.encode(playbackIntentRequired, forKey: .playbackIntentRequired)
+            try values.encode(playbackIntentAvailable, forKey: .playbackIntentAvailable)
+            try values.encode(playbackIntentID, forKey: .playbackIntentID)
+            try values.encode(leasePlaybackSessionID, forKey: .leasePlaybackSessionID)
+            try values.encode(leaseItemID, forKey: .leaseItemID)
+        } else {
+            try values.encodeIfPresent(playbackIntentRequired, forKey: .playbackIntentRequired)
+            try values.encodeIfPresent(playbackIntentAvailable, forKey: .playbackIntentAvailable)
+            try values.encodeIfPresent(playbackIntentID, forKey: .playbackIntentID)
+            try values.encodeIfPresent(leasePlaybackSessionID, forKey: .leasePlaybackSessionID)
+            try values.encodeIfPresent(leaseItemID, forKey: .leaseItemID)
+        }
+        try values.encode(serverTime, forKey: .serverTime)
+        try values.encode(validUntil, forKey: .validUntil)
+        try values.encode(viewingAllowed, forKey: .viewingAllowed)
+        try values.encode(blockedShowIDs, forKey: .blockedShowIDs)
+        try values.encode(blockedEpisodeIDs, forKey: .blockedEpisodeIDs)
+        try values.encodeIfPresent(deadline, forKey: .deadline)
+        try values.encodeIfPresent(finishPlaybackSessionID, forKey: .finishPlaybackSessionID)
+        try values.encodeIfPresent(birdItemID, forKey: .birdItemID)
+        try values.encode(shuffle, forKey: .shuffle)
+        try values.encodeIfPresent(shuffleContext, forKey: .shuffleContext)
+        try values.encodeIfPresent(policyControl, forKey: .policyControl)
+        try values.encode(commands, forKey: .commands)
+    }
 }
 
 public struct ReceiverEvent: Codable, Equatable, Sendable {
@@ -253,7 +364,7 @@ public struct KidsReceiverAPI: Sendable {
         encoder.outputFormatting = [.sortedKeys]
         let receipt: ParentCommandReceipt = try await http.request(
             "api/kids/v1/\(path)", method: "POST", headers: headers,
-            body: encoder.encode(body)
+            body: encoder.encode(body), receiverMutation: true
         )
         guard receipt.commandID == commandID, receipt.status == "persisted" else { throw ParentControlError.malformedResponse }
         return receipt

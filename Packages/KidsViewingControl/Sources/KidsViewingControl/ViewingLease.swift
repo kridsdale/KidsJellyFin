@@ -18,15 +18,18 @@ public struct ViewingLease: Sendable {
     public let serverID: String
     public let childUserID: String
     public let deviceID: UUID
+    public private(set) var requiresPlaybackGrants: Bool
     private var acceptedAt: UInt64?
     private var leaseEnd: UInt64 = 0
+    private var catalogEnd: UInt64 = 0
     private var deadlineEnd: UInt64?
     private var commandExpiries: [UUID: UInt64] = [:]
 
-    public init(serverID: String, childUserID: String, deviceID: UUID) {
+    public init(serverID: String, childUserID: String, deviceID: UUID, requiresPlaybackGrants: Bool = false) {
         self.serverID = serverID
         self.childUserID = childUserID
         self.deviceID = deviceID
+        self.requiresPlaybackGrants = requiresPlaybackGrants
     }
 
     public mutating func accept(_ value: ReceiverPolicy, requestStartedNS: UInt64, receivedNS: UInt64) throws {
@@ -37,6 +40,22 @@ public struct ViewingLease: Sendable {
         else { throw ParentControlError.serverMismatch }
         let duration = value.validUntil.timeIntervalSince(value.serverTime)
         guard duration.isFinite, (0 ... 30).contains(duration) else { throw ParentControlError.malformedResponse }
+        let requiresGrants = requiresPlaybackGrants || value.playbackIntentRequired == true
+        let explicitDisable = value.enforcementEnabled == false && value.policyControl?.kind == .release
+        if requiresGrants, explicitDisable {
+            guard !value.viewingAllowed, duration == 0 else { throw ParentControlError.malformedResponse }
+        }
+        if requiresGrants {
+            guard value.hasPlaybackGrantFields, value.playbackIntentRequired == true, value.playbackIntentAvailable != nil else {
+                throw ParentControlError.malformedResponse
+            }
+            let bound = value.playbackIntentID != nil || value.leasePlaybackSessionID != nil || value.leaseItemID != nil
+            if bound || value.viewingAllowed {
+                guard value.playbackIntentID != nil,
+                      let session = value.leasePlaybackSessionID, !session.isEmpty,
+                      let item = value.leaseItemID, !item.isEmpty else { throw ParentControlError.malformedResponse }
+            }
+        }
         try value.shuffle.validate()
         var expiries: [UUID: UInt64] = [:]
         for command in value.commands {
@@ -54,8 +73,11 @@ public struct ViewingLease: Sendable {
             deadline = nil
         }
         policy = value
+        requiresPlaybackGrants = requiresGrants
         acceptedAt = receivedNS
         leaseEnd = Self.limit(from: requestStartedNS, seconds: duration)
+        // Read-only catalog freshness is not a viewing reservation or grant.
+        catalogEnd = Self.limit(from: requestStartedNS, seconds: 30)
         deadlineEnd = deadline
         commandExpiries = expiries
     }
@@ -102,6 +124,27 @@ public struct ViewingLease: Sendable {
               KidsEligibility.permits(item, binding: binding), allowsNormalViewing(at: now), let policy,
               item.id != policy.birdItemID,
               !policy.blockedShowIDs.contains(item.id), !policy.blockedEpisodeIDs.contains(item.id),
+              item.seriesID == nil || !policy.blockedShowIDs.contains(item.seriesID!) else { return false }
+        return true
+    }
+
+    public func permitsPlayback(_ item: KidsItem, binding: KidsBinding, intentID: UUID?, sessionID: String, at now: UInt64) -> Bool {
+        guard permits(item, binding: binding, at: now) else { return false }
+        guard requiresPlaybackGrants else { return true }
+        guard let intentID, policy?.playbackIntentRequired == true else { return false }
+        return policy?.playbackIntentID == intentID && policy?.leasePlaybackSessionID == sessionID && policy?.leaseItemID == item.id
+    }
+
+    /// Browse eligibility never authorizes transport. A zero-duration viewing
+    /// lease may still carry a recently fetched read-only catalog policy.
+    public func permitsBrowsing(_ item: KidsItem, binding: KidsBinding, at now: UInt64) -> Bool {
+        guard requiresPlaybackGrants else { return permits(item, binding: binding, at: now) }
+        guard let policy, policy.playbackIntentRequired == true,
+              let acceptedAt, now >= acceptedAt, now < catalogEnd,
+              policy.playbackIntentAvailable == true || allowsNormalViewing(at: now),
+              binding.serverID == serverID, binding.userID == childUserID,
+              KidsEligibility.permits(item, binding: binding), !deadlineReached(at: now),
+              item.id != policy.birdItemID, !policy.blockedShowIDs.contains(item.id), !policy.blockedEpisodeIDs.contains(item.id),
               item.seriesID == nil || !policy.blockedShowIDs.contains(item.seriesID!) else { return false }
         return true
     }

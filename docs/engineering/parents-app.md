@@ -98,7 +98,7 @@ unchanged throughout commissioning.
 | Enable/disable shows | Shows; TV catalog and playback gates | Observed denial through browse, deep-link rejection, queue advance and playback |
 | Finish current episode with hard cap | Tonight; exact controller EOF plus deadline | EOF/deadline/replacement/release race trial |
 | Weekly routines | Family rules; server policy lease | Deployed routine engine, DST/timezone and closure/reopen integration |
-| Shared daily allowance | Family rules; short TV leases and usage reports | Playback-intent/surrender contract so idle/paused polling cannot consume allowance; concurrent-device accounting and offline/restart integration |
+| Shared daily allowance | Family rules; short TV leases and usage reports | Full native intent/surrender lifecycle and exact backend transaction fixtures so idle/paused polling cannot consume allowance; concurrent-device accounting and offline/restart integration |
 | Extra-time grants | Tonight/Family rules | Revision conflict, stricter-rule precedence and explicit-release behavior |
 | Remote pause/resume/skip | Tonight; session-bound TV commands | Current-session action/expiry/dedup/queue-backpressure trial |
 | Episode exclusions | Shows → Episode rules; TV item gates | Current episode stop and all subsequent playback entry points |

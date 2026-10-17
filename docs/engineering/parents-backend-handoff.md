@@ -500,10 +500,27 @@ Past uncertainty and confirmed usage remain charged. Already-expired/unknown-per
 unproven provenance releases zero; reset boundaries clamp grants and existing clock/
 restore/integrity guards remain. Server transaction fixtures are still pending.
 
-The native DTO/HTTP foundation has55 protocol tests passing and its neutral optional
-resume callback has21 session tests passing. These helpers are UNWIRED. Preparation,
-paused/held controller retention, UI/remote resume, safe buffer-readiness admission,
-sticky required-mode validation and quota retirement need complete runtime wiring
-and tests after the transaction contract freezes. Native intent/surrender receipts
+The native DTO/HTTP foundation has57 protocol tests passing and its neutral optional
+resume callback has21 session tests passing. The account/policy/application boundary
+checks now pass19/22/39 tests respectively, including persistent required mode,
+missing-versus-null fields, exact grant binding and a reporting-fault transport veto.
+Request/resume helpers remain UNWIRED. Preparation, paused/held controller retention,
+UI/remote resume, safe buffer-readiness admission and quota retirement need complete
+runtime wiring and exact transaction fixtures. Native intent/surrender receipts
 must use receiver capacity, preserving the separate adult-control reserve. No
 configured feature, trusted-readiness record, deployed policy or family account changed.
+
+PG-v1-draft3 is frozen with the six-key bodies and five jointly present policy fields
+above. Intent POST persists only prepared identity; a fresh current GET rechecks and
+allocates reservation with its actual ALLOW, never from cached POST receipt. Terminal
+denied/expired intent cannot be revived by exact retry. All five fields are mandatory
+in learned required mode even when binding values are explicitly null.
+
+Admission409 preserves structured {error,message}. Exact committed receipt lookup
+precedes CAS/allocation. Definite NEW-request refusals are revision_conflict,
+active_intent_exists and controller_mismatch; none commits the new intent. Changed
+key/body/principal/kind is idempotency_conflict; old epoch is command_epoch_changed
+(auth may reject first). Surrender unknown/scope/session/item/generation proof is
+intent_subject_mismatch; known superseded surrender persists inertly. Unknown,
+integrity and5xx outcomes stay held with original captured action preserved. Helpers
+never refresh/retry or replace command IDs on their own.

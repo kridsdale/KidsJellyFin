@@ -90,7 +90,7 @@ buffer recovery and surrender need consistent authority handling too. Keep
 daily-budget readiness off pending frozen transaction fixtures and native lifecycle
 integration. Unknown past allowance cannot be refunded as an idle-polling workaround.
 
-The current proposed `playback-grants-v1` wire adapter is implemented and unit-tested
+The frozen PG-v1-draft3 `playback-grants-v1` wire adapter is implemented and unit-tested
 but is not called by the receiver runtime. Policy DTOs add optional
 `playbackIntentRequired`, `playbackIntentAvailable`, `playbackIntentID`,
 `leasePlaybackSessionID` and `leaseItemID`. Browse availability is not viewing
@@ -102,15 +102,70 @@ Both use scoped receiver bearer, the exact matching command idempotency key and
 deterministic retry bytes. Only the ordinary correlated persisted receipt is
 accepted; it grants no permission. A fresh policy must still bind the exact intent,
 controller, item and usable lease before frames.
+POST persists only a bounded prepared intent, with no grant or reservation. Fresh
+GET rechecks policy and allocates reservation atomically with an actual ALLOW.
+No issued ALLOW means no reserved time. Once ALLOW may have been issued, unobserved
+start/expiry remains uncertain. Exact POST retry cannot revive a terminal denied or
+expired prepared request or replay cached permission.
 
 Auto-renewal retains one intent generation. Explicit resume creates a new intent
 even for the same controller; delayed surrender must not revoke that newer
 generation. The player library now offers a neutral optional onResumeRequested
 callback, tested to leave paused transport unchanged until the host acts. It has
 no HTTP/account dependencies and remains unconfigured. Full preparation/resume/
-buffer-readiness/surrender sequencing, sticky required-mode validation and backend
-capacity/retirement proof remain unfinished. This plumbing alone does not fix the
+buffer-readiness/surrender sequencing and backend capacity/retirement proof remain
+unfinished. This plumbing alone does not fix the
 daily-budget gap or establish capability readiness.
+
+Required-mode validation is now implemented: all five keys must be present, with
+explicit nulls distinguishable from missing nullable bindings. Policy round trips
+preserve those nulls. Learning required mode saves a durable receiver configuration
+marker before accepting enforced playback; pairing/token replacement, activation
+and completed-control latching preserve it. Restarted strict mode rejects missing,
+false, or malformed required fields, including incomplete deactivation replies.
+Explicit parent disable retains the remembered mode for future reactivation.
+
+Read-only catalog eligibility has a separate local30-second freshness bound and
+never substitutes for transport authority. The exact playback predicate additionally
+requires the locally admitted intent ID and raw controller/item match. IntentAvailable
+may be false while the existing own reservation still permits playback. Prestart,
+grant capture and watchdog paths now use that strict predicate. No runtime admission
+flow sets the local admitted ID yet, so this is fail-closed plumbing, not a completed
+explicit-grant mode. The pure browse predicate also awaits catalog/UI lifecycle wiring.
+The final transport gate also rejects a known reporting fault, closing the race
+where metadata/player preparation finishes after an integrity fault was detected.
+
+Admission409 errors now retain a distinct mutation-conflict type. Only the frozen
+revision_conflict/active_intent_exists/controller_mismatch prove a new intent was
+refused without commitment. Idempotency/epoch/subject/unknown/malformed conflicts
+do not. Helpers do not refresh/retry/rewrite action IDs automatically.
+
+The remaining native integration sequence is:
+
+1. Serialize captured intent/surrender requests with the existing policy flight.
+   Drain actual evidence FIFO before surrender or new intent; preserve unknown POST
+   outcomes and identical retry bodies. Resolve an abandoned prepared request before
+   any GET that could allocate its ALLOW.
+2. Use read-only browse eligibility before metadata/player preparation. After the
+   actual controller exists, persist intent only; a fresh current GET atomically
+   allocates reservation/ALLOW. Validate the exact finite binding before driver.start.
+3. Separate global policy holds from per-controller local revocation. Local pause
+   must override even an old still-valid lease until surrender and a new intent plus
+   fresh binding succeed. Retain genuinely paused/prepared objects without frames.
+4. Route UI and remote resume through one scoped coordinator. Background, parent
+   pause, identity changes and stop invalidate late admission completions.
+5. Retain the first finite grant during initial preparation, without GET renewal or
+   automatic new intents for an unstarted controller. After actual start, a long
+   buffering hold may request a new intent only for the same controller/item after
+   readiness while held. Never autoplay a replacement item for recovery.
+6. Handle ordinary stop, EOF, cancellation, replacement and orphaned startup intents:
+   retain evidence, await actual driver drain where applicable, then surrender the
+   exact old generation before a new intent. Do not manufacture started/stopped usage
+   for preparation that never produced operational start.
+7. Replay frozen backend transactions and test idle, prepared, playing, paused,
+   buffering, unknown/retried POSTs, same-controller resume, stale surrender, scope/
+   background races, clock/reset boundaries and restart. Keep capabilities off until
+   separate source/runtime commissioning gates pass.
 
 The accepted accounting refinement distinguishes unknown past from future capacity:
 at verified surrender time on the server, only unused future capacity attributable
@@ -422,11 +477,11 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 55 passed |
-| KidsViewingControl pure policy tests | 16 passed |
-| KidsAccounts configuration contracts | 18 passed |
+| KidsParentControl transport/feature/fixture tests | 57 passed |
+| KidsViewingControl pure policy tests | 22 passed |
+| KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 37 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 39 passed |
 | KidsPlaybackSession lifecycle/passive observations/neutral resume admission | 21 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
@@ -466,10 +521,11 @@ malformed reset receipt retention/reporting fault, and full recovery drainage ac
 three bounded send batches without an intermediate policy GET.
 The TV build's embedded
 `KidsEvidenceImplementationRevision` exactly matched the final source digest:
-`c5df846301f00da5fbbd8710d1ba24f0fb45fed712469d9c52aae25a936843ca`.
-The latest37-test pass compiled the optional admission DTO/HTTP adapter and neutral
-resume callback with both still unwired. Its embedded value matches the formatted
-source exactly; it establishes source identity rather than a budget-admission trial.
+`8737e726bf7725bda37c4c014904a4bfd040bcb2b629e4c5f43c37d9d4e67eb8`.
+The latest39-test pass covers learned-mode persistence, exact prestart binding and
+the reporting-fault veto, with distinct admission error handling compiled too. Its
+embedded value matches final formatted source exactly. Full admission/resume remains unwired.
+This establishes source identity rather than a budget-admission runtime trial.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

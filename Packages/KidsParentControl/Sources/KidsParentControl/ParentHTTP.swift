@@ -51,7 +51,7 @@ struct ParentHTTP: Sendable {
 
     func request<T: Decodable & Sendable>(
         _ path: String, method: String = "GET", headers: [String: String] = [:],
-        query: [URLQueryItem] = [], body: Data? = nil, receiverEvent: Bool = false
+        query: [URLQueryItem] = [], body: Data? = nil, receiverEvent: Bool = false, receiverMutation: Bool = false
     ) async throws -> T {
         var parts = URLComponents(url: server.url.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.isEmpty ? nil : query
@@ -68,6 +68,9 @@ struct ParentHTTP: Sendable {
         case 409 where receiverEvent:
             let code = data.count <= 4096 ? (try? JSONDecoder().decode(ReceiverConflictBody.self, from: data).error) : nil
             throw ReceiverEventConflict(code: code)
+        case 409 where receiverMutation:
+            let code = data.count <= 4096 ? (try? JSONDecoder().decode(ReceiverConflictBody.self, from: data).error) : nil
+            throw ReceiverMutationConflict(code: code)
         case 409, 412: throw ParentControlError.conflict
         default: throw ParentControlError.http(response.statusCode)
         }

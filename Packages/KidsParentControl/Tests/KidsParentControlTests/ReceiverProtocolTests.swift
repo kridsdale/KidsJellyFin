@@ -13,12 +13,15 @@ import Testing
 private actor ReceiverTransport: ParentHTTPTransport {
     var requests: [URLRequest] = []
     var responses: [String]
-    init(_ response: String) {
+    let status: Int
+    init(_ response: String, status: Int = 200) {
         responses = [response]
+        self.status = status
     }
 
     init(responses: [String]) {
         self.responses = responses
+        status = 200
     }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
@@ -27,7 +30,7 @@ private actor ReceiverTransport: ParentHTTPTransport {
         if responses.count > 1 {
             responses.removeFirst()
         }
-        return (Data(response.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+        return (Data(response.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
 }
 
@@ -288,6 +291,14 @@ func `playback intent policy distinguishes browse availability from exact bound 
     #expect(!idle.viewingAllowed)
     #expect(idle.validUntil == idle.serverTime)
     #expect(idle.playbackIntentID == nil && idle.leasePlaybackSessionID == nil && idle.leaseItemID == nil)
+    #expect(idle.hasPlaybackGrantFields)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let encoded = try encoder.encode(idle)
+    let roundtripJSON = try #require(String(data: encoded, encoding: .utf8))
+    let roundtrip = try await receiverAPI(ReceiverTransport(roundtripJSON)).policy()
+    #expect(roundtrip == idle)
+    #expect(roundtrip.hasPlaybackGrantFields)
 }
 
 @Test
@@ -310,6 +321,36 @@ func `invalid playback selection or revision cannot send intent or surrender`() 
         }
     }
     #expect(await transport.requests.isEmpty)
+}
+
+@Test
+func `intent conflicts retain exact refusal codes without refreshing or rewriting request`() async throws {
+    let definite = ["revision_conflict", "active_intent_exists", "controller_mismatch"]
+    let integrity = ["idempotency_conflict", "command_epoch_changed", "intent_subject_mismatch", "unknown_error"]
+    for code in definite + integrity {
+        let transport = ReceiverTransport("{\"error\":\"\(code)\",\"message\":\"Synthetic refusal\"}", status: 409)
+        let api = try receiverAPI(transport)
+        let id = UUID()
+        await #expect(throws: ReceiverMutationConflict(code: code)) {
+            try await api.requestPlaybackIntent(commandID: id, expectedRevision: 2, playbackSessionID: "controller", itemID: "episode")
+        }
+        #expect(ReceiverMutationConflict(code: code).isDefiniteIntentRefusal == definite.contains(code))
+        let requests = await transport.requests
+        #expect(requests.count == 1)
+        #expect(requests[0].httpMethod == "POST")
+        #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == id.uuidString)
+    }
+}
+
+@Test
+func `unknown surrender conflicts cannot be interpreted as safe intent rejection`() async throws {
+    for response in ["{}", "not-json", "{\"error\":null}"] {
+        let api = try receiverAPI(ReceiverTransport(response, status: 409))
+        await #expect(throws: ReceiverMutationConflict(code: nil)) {
+            try await api.surrenderPlayback(commandID: UUID(), playbackIntentID: UUID(), playbackSessionID: "controller", itemID: "episode")
+        }
+    }
+    #expect(!ReceiverMutationConflict(code: nil).isDefiniteIntentRefusal)
 }
 
 @Test
