@@ -22,6 +22,10 @@ private actor FixtureTransport: ParentHTTPTransport {
         self.replies = replies.map { (200, $0) }
     }
 
+    init(httpReplies: [(Int, Data)]) {
+        replies = httpReplies.map { ($0.0, $0.1) }
+    }
+
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
         let reply = try #require(replies.first)
@@ -58,6 +62,128 @@ private func nestedRecoveryFixture(_ name: String, _ key: String, _ member: Stri
     let object = try #require(decoded as? [String: Any])
     let value = try #require(object[member])
     return try JSONSerialization.data(withJSONObject: value)
+}
+
+private func grantResponse(_ key: String, event: Bool = false) throws -> (Int, Data) {
+    let data = try event ? nestedRecoveryFixture("playback-grants-transaction-v2", key, "response") :
+        wireFixture("playback-grants-transaction-v2", key)
+    let decoded = try JSONSerialization.jsonObject(with: data)
+    let object = try #require(decoded as? [String: Any])
+    let status = try #require(object["httpStatus"] as? Int)
+    let body = try #require(object["body"])
+    return try (status, JSONSerialization.data(withJSONObject: body))
+}
+
+private struct GrantIntentRequest: Decodable {
+    let commandID: UUID
+    let expectedRevision: Int
+    let playbackSessionID: String
+    let itemID: String
+}
+
+private struct GrantSurrenderRequest: Decodable {
+    let commandID: UUID
+    let playbackIntentID: UUID
+    let playbackSessionID: String
+    let itemID: String
+}
+
+@Test
+func `actual backend grant transaction requires fresh bound GET and keeps resumed generation distinct`() async throws {
+    let name = "playback-grants-transaction-v2"
+    let transport = try FixtureTransport(httpReplies: [
+        grantResponse("idle-policy"), grantResponse("intent-receipt"), grantResponse("exact-intent-retry"), grantResponse("bound-policy"),
+        grantResponse("started", event: true), grantResponse("progress", event: true), grantResponse("paused", event: true),
+        grantResponse("surrender-receipt"), grantResponse("exact-surrender-retry"), grantResponse("held-after-surrender"),
+        grantResponse("resume-intent-receipt"), grantResponse("resume-bound-policy"), grantResponse("stale-old-surrender"),
+        grantResponse("policy-after-stale-surrender"), grantResponse("resume-started", event: true), grantResponse("outage-held-policy"),
+        grantResponse("outage-current-surrender")
+    ])
+    let api = try recoveryAPI(transport)
+    let idle = try await api.policy()
+    #expect(idle.hasPlaybackGrantFields && idle.playbackIntentAvailable == true && !idle.viewingAllowed)
+    #expect(idle.playbackIntentID == nil && idle.validUntil == idle.serverTime)
+    let decoder = JSONDecoder()
+    let intent = try decoder.decode(GrantIntentRequest.self, from: wireFixture(name, "intent-request"))
+    for _ in 0 ..< 2 {
+        try await api.requestPlaybackIntent(
+            commandID: intent.commandID,
+            expectedRevision: intent.expectedRevision,
+            playbackSessionID: intent.playbackSessionID,
+            itemID: intent.itemID
+        )
+    }
+    let bound = try await api.policy()
+    #expect(bound.viewingAllowed && bound.playbackIntentAvailable == false)
+    #expect(bound.playbackIntentID == intent.commandID && bound.leasePlaybackSessionID == intent.playbackSessionID && bound
+        .leaseItemID == intent.itemID)
+    for key in ["started", "progress", "paused"] {
+        try await api.send(decoder.decode(ReceiverEvent.self, from: nestedRecoveryFixture(name, key, "request")))
+    }
+    let surrender = try decoder.decode(GrantSurrenderRequest.self, from: wireFixture(name, "surrender-request"))
+    for _ in 0 ..< 2 {
+        try await api.surrenderPlayback(
+            commandID: surrender.commandID,
+            playbackIntentID: surrender.playbackIntentID,
+            playbackSessionID: surrender.playbackSessionID,
+            itemID: surrender.itemID
+        )
+    }
+    let held = try await api.policy()
+    #expect(!held.viewingAllowed && held.playbackIntentAvailable == true && held.playbackIntentID == nil)
+    let resume = try decoder.decode(GrantIntentRequest.self, from: wireFixture(name, "resume-intent-request"))
+    #expect(resume.playbackSessionID == intent.playbackSessionID && resume.commandID != intent.commandID)
+    try await api.requestPlaybackIntent(
+        commandID: resume.commandID,
+        expectedRevision: resume.expectedRevision,
+        playbackSessionID: resume.playbackSessionID,
+        itemID: resume.itemID
+    )
+    let resumed = try await api.policy()
+    #expect(resumed.playbackIntentID == resume.commandID)
+    let oldReceipt = try JSONDecoder().decode(ParentCommandReceipt.self, from: grantResponse("stale-old-surrender").1)
+    try await api.surrenderPlayback(
+        commandID: oldReceipt.commandID,
+        playbackIntentID: intent.commandID,
+        playbackSessionID: intent.playbackSessionID,
+        itemID: intent.itemID
+    )
+    let afterOld = try await api.policy()
+    #expect(afterOld == resumed)
+    try await api.send(decoder.decode(ReceiverEvent.self, from: nestedRecoveryFixture(name, "resume-started", "request")))
+    let renewal = try await api.policy()
+    #expect(renewal.playbackIntentID == resume.commandID && renewal.revision > resumed.revision)
+    let finalReceipt = try JSONDecoder().decode(ParentCommandReceipt.self, from: grantResponse("outage-current-surrender").1)
+    try await api.surrenderPlayback(
+        commandID: finalReceipt.commandID,
+        playbackIntentID: resume.commandID,
+        playbackSessionID: resume.playbackSessionID,
+        itemID: resume.itemID
+    )
+    let requests = await transport.requests
+    #expect(requests[1].httpBody == requests[2].httpBody)
+    #expect(requests[7].httpBody == requests[8].httpBody)
+    #expect(requests[0].httpMethod == "GET" && requests[3].httpMethod == "GET" && requests[9].httpMethod == "GET")
+}
+
+@Test
+func `actual admission conflict fixtures preserve integrity versus definite refusal`() async throws {
+    for (key, code, definite) in [
+        ("revision-refusal", "revision_conflict", true), ("active-refusal", "active_intent_exists", true),
+        ("changed-intent-body", "idempotency_conflict", false)
+    ] {
+        let response = try grantResponse(key)
+        let api = try recoveryAPI(FixtureTransport(status: response.0, data: response.1))
+        await #expect(throws: ReceiverMutationConflict(code: code)) {
+            try await api.requestPlaybackIntent(
+                commandID: UUID(),
+                expectedRevision: 1,
+                playbackSessionID: "Synthetic-Controller-A",
+                itemID: "10000000-0000-4000-8000-000000000006"
+            )
+        }
+        #expect(ReceiverMutationConflict(code: code).isDefiniteIntentRefusal == definite)
+    }
 }
 
 private func recoveryAPI(_ transport: FixtureTransport) throws -> KidsReceiverAPI {

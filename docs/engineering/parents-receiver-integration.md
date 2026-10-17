@@ -142,11 +142,14 @@ do not. Helpers do not refresh/retry/rewrite action IDs automatically.
 
 The remaining native integration sequence is:
 
-1. Serialize captured intent/surrender requests with the existing policy flight.
+1. Persist captured intent/surrender requests before POST in a scope-specific private
+   application-support ledger, then serialize them with the existing policy flight.
    Drain actual evidence FIFO before surrender or new intent; preserve unknown POST
-   outcomes and identical retry bodies. Resolve an abandoned prepared request before
-   any GET that could allocate its ALLOW.
-2. Use read-only browse eligibility before metadata/player preparation. After the
+   outcomes and identical retry bodies. On restart resolve and retire orphaned
+   preparations before any GET that could allocate their ALLOW. Do not replay media
+   or infer an operational controller from the ledger. Keep tokens out of it.
+2. Use read-only browse eligibility for catalog, episode and shuffle selection before
+   metadata/player preparation. After the
    actual controller exists, persist intent only; a fresh current GET atomically
    allocates reservation/ALLOW. Validate the exact finite binding before driver.start.
 3. Separate global policy holds from per-controller local revocation. Local pause
@@ -154,6 +157,10 @@ The remaining native integration sequence is:
    fresh binding succeed. Retain genuinely paused/prepared objects without frames.
 4. Route UI and remote resume through one scoped coordinator. Background, parent
    pause, identity changes and stop invalidate late admission completions.
+   Close the old per-intent announcement only after known surrender; a resumed
+   generation on the same controller needs a new actual started observation before
+   progress. The original once-per-controller began flag alone is insufficient;
+   neither a grant nor a paused old controller is a resumed-frame callback.
 5. Retain the first finite grant during initial preparation, without GET renewal or
    automatic new intents for an unstarted controller. After actual start, a long
    buffering hold may request a new intent only for the same controller/item after
@@ -390,6 +397,27 @@ run passed379 distinct tests with no skips. Complete shuffle context, installed
 catalog/startup adapters and deployment remain separate gates. This repair integration
 is not a live service change.
 
+### Actual playback-grants transaction join
+
+The server's exact `Fixtures/playback-grants-transaction-v2.json` is12,038 bytes and
+independently matches SHA-256
+`dfe03b83d750c12bdcde7b62d286600b8203196023ba60525bcfdfb044421746`.
+Native replay now passes the real loopback HTTP/auth/SQLite trace: idle availability
+with no spendable lease, ordinary intent receipt/exact retry, fresh bound GET,
+actual started/progress/paused evidence, surrender/exact retry, held zero-lease GET,
+new intent for the same controller, stale old surrender leaving the new binding
+unchanged, observed resumed start, playing renewal and current-generation surrender.
+Structured conflict vectors distinguish definite refusal from idempotency failure.
+
+The accounting snapshots record backend-executed evidence: idle/prepared without
+ALLOW reserves0; playing5s then surrender at server7s leaves used5/unknown2; outage
+uncertainty remains charged while only attributable current future capacity releases.
+These are not locally rerun database assertions or a native playback trial. Server
+checkpoint `31d0234` reports407 joined tests with no skips under RAID/external-network
+denial, plus its600,000-row capacity test. Final tests fence old-generation terminal
+effects and disable/re-enable cycles. Full native lifecycle wiring and later runtime
+commissioning remain open; passing this fixture cannot promote the capability.
+
 The original 19-fixture bundle was reported with SHA-256
 `1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
 The later never-activated heartbeat fixture was reported with SHA-256
@@ -477,7 +505,7 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 57 passed |
+| KidsParentControl transport/feature/fixture tests | 59 passed |
 | KidsViewingControl pure policy tests | 22 passed |
 | KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
