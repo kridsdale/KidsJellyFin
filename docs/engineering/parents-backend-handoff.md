@@ -412,7 +412,7 @@ and policy admission.
 Backend checkpoint `8890ead` reports162 distinct joined tests with no skips in a
 RAID-denied loopback sandbox. Exact `historical-usage.json` and `late-ack.json`
 fixtures, independently hashed on the peer, are recorded in the receiver integration
-document. The peer has50 protocol tests and36 actual-source application boundary
+document. The peer has51 protocol tests and36 actual-source application boundary
 tests passing with injected transports and fake playback drivers. This is source
 compatibility, not deployment or runtime readiness.
 
@@ -465,5 +465,8 @@ The receiver stops/retires only the exact matching active controller; replacemen
 sessions are untouched. Preserve/drain the immutable old FIFO and actual stop, then
 read fresh policy. Never autoplay or manufacture a start from a persistence receipt.
 A later normal user Play uses fresh permission and a new real controller/start.
-The server is producing actual transaction fixtures; source client tests do not
-establish installed capability or household acceptance.
+The actual8,979-byte `unconfirmed-first-start.json` transaction fixture now matches
+the supplied SHA-256 exactly and passes native API replay; the backend reports177
+distinct joined tests with no skips. Exact proof/hash and trace are in the receiver
+integration document. Source tests do not establish installed capability or
+household acceptance.

@@ -254,9 +254,23 @@ On a valid receipt the receiver holds and stops only the matching active control
 retains/drains immutable queued reports and the real stop under their original
 grant, then fetches fresh policy. A late receipt cannot stop a replacement controller.
 There is no automatic replay or manufactured start. The normal user Play entry may
-create a genuinely new controller/start after fresh permission. The exact backend
-transaction fixture and installed gate/readiness are still required; local synthetic
-receipt tests cannot promote the capability.
+create a genuinely new controller/start after fresh permission. Installed
+gate/readiness and observed runtime acceptance are still required.
+
+The server's frozen `Fixtures/unconfirmed-first-start.json` is8,979 bytes and
+independently matches SHA-256
+`e4ea2c07d54e28fcb966a3a14ee5e4b1e86306247b3f56f181377314e43d074d`.
+Its actual isolated transaction trace is now replayed through the native API:
+old ALLOW, current DENY, exact repeated unconfirmed start receipt, private progress/
+real stop, continuing DENY, explicitly changed parent policy, new operational start/
+progress and late private old terminal. The original queued bytes/revision remain
+unchanged; only the old session is named by reset metadata. Backend source reports177
+distinct joined tests with no skips. Its accounting/history/replacement snapshots
+are provenance of server-executed transactions, not locally rerun database assertions.
+Current immutable catalog eligibility remains required independently of current
+show/time/budget permission; removed or unverified catalog items still fail review.
+The gate requires this capability in independently verified receiver evidence before
+granting policy under the configured extension. It remains off and uncommissioned.
 
 The original 19-fixture bundle was reported with SHA-256
 `1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
@@ -345,7 +359,7 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 50 passed |
+| KidsParentControl transport/feature/fixture tests | 51 passed |
 | KidsViewingControl pure policy tests | 16 passed |
 | KidsAccounts configuration contracts | 18 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |

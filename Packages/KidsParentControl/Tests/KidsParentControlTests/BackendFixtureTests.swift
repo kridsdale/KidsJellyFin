@@ -129,6 +129,61 @@ func `late command persistence receipt is distinct from fresh release action rec
     #expect(events.map(\.policyRevision) == [3, 5])
 }
 
+@Test
+func `backend unconfirmed first start survives denial retry and replacement without relabeling`() async throws {
+    let name = "unconfirmed-first-start"
+    let transport = try FixtureTransport(replies: [
+        wireFixture(name, "original-allow"), wireFixture(name, "current-denial"),
+        nestedRecoveryFixture(name, "unobserved-start", "response"), wireFixture(name, "exact-retry-response"),
+        nestedRecoveryFixture(name, "unobserved-progress", "response"), nestedRecoveryFixture(name, "real-stop-after-reset", "response"),
+        wireFixture(name, "still-denied"), wireFixture(name, "new-explicit-allow"),
+        nestedRecoveryFixture(name, "new-operational-start", "response"), nestedRecoveryFixture(name, "new-observed-progress", "response"),
+        nestedRecoveryFixture(name, "late-old-terminal", "response")
+    ])
+    let api = try recoveryAPI(transport)
+    #expect(try await api.policy().viewingAllowed)
+    #expect(try await !api.policy().viewingAllowed)
+    let decoder = JSONDecoder()
+    let start = try decoder.decode(ReceiverEvent.self, from: nestedRecoveryFixture(name, "unobserved-start", "request"))
+    let first = try await api.send(start)
+    let retry = try await api.send(start)
+    #expect(first == retry)
+    #expect(first.evidenceDisposition == "unconfirmed")
+    #expect(first.unconfirmedPlaybackSessionID == "actual-callback-queued-offline")
+    for key in ["unobserved-progress", "real-stop-after-reset"] {
+        let event = try decoder.decode(ReceiverEvent.self, from: nestedRecoveryFixture(name, key, "request"))
+        let receipt = try await api.send(event)
+        #expect(receipt.unconfirmedPlaybackSessionID == start.playbackSessionID)
+        #expect(event.policyRevision == 2)
+    }
+    let denied = try await api.policy()
+    #expect(!denied.viewingAllowed)
+    #expect(denied.revision == 6)
+    // The source transaction explicitly changes parent policy before this new
+    // grant. No unconfirmed receipt itself creates this permission or start.
+    let allowed = try await api.policy()
+    #expect(allowed.viewingAllowed)
+    #expect(allowed.revision == 9)
+    for key in ["new-operational-start", "new-observed-progress"] {
+        let event = try decoder.decode(ReceiverEvent.self, from: nestedRecoveryFixture(name, key, "request"))
+        let receipt = try await api.send(event)
+        #expect(receipt.evidenceDisposition == nil)
+        #expect(receipt.unconfirmedPlaybackSessionID == nil)
+        #expect(event.playbackSessionID == "replacement-controller")
+        #expect(event.policyRevision == 9)
+    }
+    let terminal = try decoder.decode(ReceiverEvent.self, from: nestedRecoveryFixture(name, "late-old-terminal", "request"))
+    let late = try await api.send(terminal)
+    #expect(late.unconfirmedPlaybackSessionID == start.playbackSessionID)
+    #expect(late.unconfirmedPlaybackSessionID != "replacement-controller")
+    let requests = await transport.requests
+    #expect(requests[2].httpBody == requests[3].httpBody)
+    let sent = try requests.compactMap { request in
+        try request.httpBody.map { try decoder.decode(ReceiverEvent.self, from: $0) }
+    }
+    #expect(sent.map(\.policyRevision) == [2, 2, 2, 2, 9, 9, 2])
+}
+
 private func nativeUUIDAPI(_ transport: FixtureTransport) throws -> KidsReceiverAPI {
     try KidsReceiverAPI(
         server: ParentServer("http://127.0.0.1:9"),
