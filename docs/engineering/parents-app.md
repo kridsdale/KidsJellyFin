@@ -113,6 +113,9 @@ prepare a gated deployment/rollback → explicitly commission a test receiver �
 observe runtime behavior → promote each validated capability. Source tests cannot
 stand in for the final two steps. Physical iPhone/tvOS signing/install remains
 unverified; the configured paid team is not installation evidence.
+The ordered scope, trial matrix and rollback requirements are in
+[parents-commissioning.md](parents-commissioning.md). This is a reviewable execution
+plan; none of its live steps are authorized or marked complete by source checks.
 
 - **Tonight:** select the family TV, remaining minutes, and an approved bird video.
   Start without an overlay on the TV. The phone shows acknowledged server state;
