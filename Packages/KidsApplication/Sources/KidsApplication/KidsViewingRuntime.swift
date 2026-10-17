@@ -285,7 +285,8 @@ extension KidsAppModel {
         }
         for _ in 0 ..< 16 {
             guard let event = runtime.events.first else { break }
-            do { try await runtime.api.send(event) }
+            var unconfirmedSession: String?
+            do { unconfirmedSession = try await runtime.api.send(event).unconfirmedPlaybackSessionID }
             catch let conflict as ReceiverEventConflict where conflict.allowsHeartbeatRefresh && event.kind == .heartbeat &&
                 event.elapsedPlayingSeconds == 0 && event.commandID == nil
             {
@@ -294,8 +295,22 @@ extension KidsAppModel {
             } catch let conflict as ReceiverEventConflict {
                 runtime.reportingFault = true
                 throw conflict
+            } catch ParentControlError.malformedResponse {
+                runtime.reportingFault = true
+                throw ParentControlError.malformedResponse
             }
             guard viewingRuntime === runtime, !Task.isCancelled else { return }
+            if let unconfirmedSession, let controller = activePlayback,
+               controller.id.uuidString == unconfirmedSession, runtime.ambientSessionID != controller.id
+            {
+                // Persistence of an unconfirmed start is not permission. Retire
+                // only that controller; preserve its queued bytes and real stop.
+                viewingHeld = true
+                cancelPendingStart()
+                controller.driver.pause()
+                await stopPlayback(endSession: false)
+                guard viewingRuntime === runtime, !Task.isCancelled else { return }
+            }
             runtime.events.removeFirst()
         }
         if runtime.events.isEmpty {

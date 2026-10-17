@@ -230,7 +230,33 @@ fresh release has its own policy and acknowledgement. Backend accounting snapsho
 are server-executed provenance, not local database tests. Unknown, never-delivered,
 cross-subject, epoch and integrity failures still fail closed; the source recovery
 window is seven days. First-start evidence delayed until after a policy change is
-a separately raised recovery edge, not silently accepted by these fixtures.
+handled by the additional gated contract below, not by these older fixtures.
+
+### Delayed first-start recovery
+
+The agreed source extension is separately default-off
+`unconfirmed-start-recovery-v1`. With original returned-ALLOW/scope proof, the
+server may retain otherwise unbound normal evidence privately as unconfirmed.
+It cannot create confirmed viewing history/usage, refund uncertainty, grant a
+lease, unblock a show or revive a command. The original still-unbound reservation
+is conservatively retired to unconfirmed rather than reused by another controller.
+
+Its event receipt adds the exact pair
+`evidenceDisposition:"unconfirmed"` and
+`unconfirmedPlaybackSessionID:<submitted session>`. The native dedicated
+ReceiverEventReceipt validates event ID/status, exact session spelling, nonempty
+item/session, no control ID, and normal started/progress/paused/buffering/ended/stopped
+kind. Unknown, incomplete, mismatched, ambient/control/heartbeat metadata fails
+closed and cannot acknowledge/pop the event. A malformed receipt sets the
+reporting-fault hold, just as an integrity conflict does.
+
+On a valid receipt the receiver holds and stops only the matching active controller,
+retains/drains immutable queued reports and the real stop under their original
+grant, then fetches fresh policy. A late receipt cannot stop a replacement controller.
+There is no automatic replay or manufactured start. The normal user Play entry may
+create a genuinely new controller/start after fresh permission. The exact backend
+transaction fixture and installed gate/readiness are still required; local synthetic
+receipt tests cannot promote the capability.
 
 The original 19-fixture bundle was reported with SHA-256
 `1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
@@ -251,7 +277,7 @@ As of this record, the server confirmed these remaining compatibility gates:
    command ID and zero elapsed. Remote-command ACKs cannot use this idle shape;
    ambientStarted requires an actual controller session. This is not deployed.
 3. Integrate source-complete queued-report/control recovery against the client,
-   including the first-start outage edge. Validate original-grant accounting without
+   including the new gated first-start outage extension. Validate original-grant accounting without
    minting permission, refunding uncertainty or reviving obsolete commands.
 4. Freeze complete watched/recent context and test shuffle across devices.
 5. Finish the startup/catalog adapter and runtime evidence gates, then deploy the
@@ -270,7 +296,11 @@ produces120,960 events in seven days, exceeding the backend's earlier50,000 glob
 receipt cap before other devices/transitions. Policy polling is five seconds, the
 one-second watchdog is local, and normal progress replaces idle heartbeats when
 queued. Background polling is suspended. The server agent is resolving capacity
-and admission limits; no live load has been generated.
+and admission limits; no live load has been generated. The server now reports an
+actual600,000-row private SQLite test passing with separate550,000 receiver and
+50,000 adult receipt reserves, exact retry at capacity, seven-day retention and
+about193MB peak receipt storage. Its proposed admission profile is two registered
+TV installations, not an unlimited fleet. Neither profile nor limits are deployed.
 
 Joined transaction proof of uppercase native UUID correlation is now source-tested
 on the backend and matched by exact native fixture tests.
@@ -315,11 +345,11 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 47 passed |
+| KidsParentControl transport/feature/fixture tests | 50 passed |
 | KidsViewingControl pure policy tests | 16 passed |
 | KidsAccounts configuration contracts | 18 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 33 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 36 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
 | Architecture-checker unit tests | 25 passed |
@@ -344,14 +374,16 @@ account, TV experience and host-adapter sources so a build can be tied to this c
 `KidsJellyFin tvOS` and `KidsJellyFin Parents` generic simulator builds both passed
 (arm64 and x86_64), with signing disabled. The subsequent control-only ambient
 update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
-33 selected application-boundary tests passed after the reporting lifecycle update.
+36 selected application-boundary tests passed after the reporting lifecycle/recovery update.
 New cases cover no-start preparation/heartbeat/stop suppression, actual driver
 readiness before usage, zero-elapsed transport transitions, residual old-grant
 flush before renewal, stopping a legacy controller on activation-storage failure,
-and byte-identical late-ACK outage recovery before fetching/acknowledging release.
+byte-identical late-ACK outage recovery before fetching/acknowledging release,
+unconfirmed-start retirement before fresh policy, replacement-session protection,
+and malformed reset receipt retention/reporting fault.
 The TV build's embedded
 `KidsEvidenceImplementationRevision` exactly matched the final source digest:
-`fc253dc3a5f0ef7832126747a72a027abe1d5b1fc87e15cd12a7f6c88a3e12a6`.
+`a310b303f2c6bb6909993fea233b096f0f912f61d46f84529004efa112f31dfa`.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

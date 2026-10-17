@@ -142,6 +142,26 @@ public struct ReceiverEvent: Codable, Equatable, Sendable {
     }
 }
 
+/// Acknowledges event storage, never command application or viewing permission.
+public struct ReceiverEventReceipt: Decodable, Equatable, Sendable {
+    public let commandID: UUID
+    public let status: String
+    public let evidenceDisposition: String?
+    public let unconfirmedPlaybackSessionID: String?
+
+    func validate(for event: ReceiverEvent) throws {
+        guard commandID == event.eventID, status == "persisted" else { throw ParentControlError.malformedResponse }
+        if evidenceDisposition == nil, unconfirmedPlaybackSessionID == nil {
+            return
+        }
+        guard evidenceDisposition == "unconfirmed", let session = unconfirmedPlaybackSessionID, !session.isEmpty,
+              session == event.playbackSessionID, event.commandID == nil,
+              let item = event.itemID, !item.isEmpty,
+              [.started, .progress, .paused, .buffering, .ended, .stopped].contains(event.kind)
+        else { throw ParentControlError.malformedResponse }
+    }
+}
+
 /// Device credential only. There are no parent writes or generic Jellyfin play routes.
 public struct KidsReceiverAPI: Sendable {
     private let http: ParentHTTP
@@ -172,7 +192,8 @@ public struct KidsReceiverAPI: Sendable {
         return policy
     }
 
-    public func send(_ event: ReceiverEvent) async throws {
+    @discardableResult
+    public func send(_ event: ReceiverEvent) async throws -> ReceiverEventReceipt {
         guard event.childUserID == childUserID, UUID(uuidString: deviceID) != nil, event.deviceID == deviceID,
               event.policyRevision >= 0, event.elapsedPlayingSeconds.isFinite, (0 ... 30).contains(event.elapsedPlayingSeconds),
               event.positionSeconds == nil || (event.positionSeconds!.isFinite && event.positionSeconds! >= 0)
@@ -181,13 +202,14 @@ public struct KidsReceiverAPI: Sendable {
         headers["Idempotency-Key"] = event.eventID.uuidString
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let receipt: ParentCommandReceipt = try await http.request(
+        let receipt: ReceiverEventReceipt = try await http.request(
             "api/kids/v1/events",
             method: "POST",
             headers: headers,
             body: encoder.encode(event),
             receiverEvent: true
         )
-        guard receipt.commandID == event.eventID, receipt.status == "persisted" else { throw ParentControlError.malformedResponse }
+        try receipt.validate(for: event)
+        return receipt
     }
 }

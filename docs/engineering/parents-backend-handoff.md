@@ -356,7 +356,8 @@ capabilities disabled until they are tested and commissioned.
   Never invent a control ID. A future generic branch requires a separate contract.
 - Accept queued evidence against its original granted lease/revision and remote
   delivery, including prior revisions; never relabel it with a newer policy revision.
-  This remains an outstanding backend gate. Missing usage cannot refund reservations.
+  Backend checkpoint `8890ead` now implements bounded recovery in source. Missing
+  usage cannot refund reservations. Installed integration remains a gate.
 - Add optional `shuffleContext: {watchedItemIDs: [...], recentItemIDs: [...]}` scoped
   to approved items, plus the now-frozen `complete:boolean`. The client requires
   explicit true for history ranking; missing/false is not evidence of never watched.
@@ -380,8 +381,9 @@ evidence and a fresh authenticated heartbeat. Only the explicit gate emits optio
 `enforcementEnabled`. Disable preserves spent allowance, moves only this device's
 held reservation to unconfirmed, and emits false+release without a viewing lease.
 Five transaction tests are reported passing. This is neither commissioning nor
-deployment. Prior-lease/delivery evidence and failed-release redelivery, complete
-shuffle context, startup/catalog adapter and observed runtime behavior remain gates.
+deployment. Prior-lease/delivery recovery is now source-tested against exact native
+fixtures. Complete shuffle context, startup/catalog adapter and observed runtime
+behavior remain gates.
 
 ### Heartbeat and UUID clarification
 
@@ -400,5 +402,68 @@ stay fail closed. No progress/control/ambient evidence is silently discarded.
 The backend first requires original event/command body UUID spelling to equal its
 original idempotency header, then normalizes these UUID identities together. Correlated
 command UUIDs and command paths normalize too; installation/child/Jellyfin subjects
-must never be normalized. Native Swift emits uppercase UUIDs. HTTP-source tests
-are reported passing, and a joined transaction fixture remains requested.
+must never be normalized. Native Swift emits uppercase UUIDs. The joined native
+UUID transaction fixture is now independently hash-verified and replayed by native
+tests; differently spelled installation subjects are rejected before event send
+and policy admission.
+
+### Queued evidence recovery — frozen source contract
+
+Backend checkpoint `8890ead` reports162 distinct joined tests with no skips in a
+RAID-denied loopback sandbox. Exact `historical-usage.json` and `late-ack.json`
+fixtures, independently hashed on the peer, are recorded in the receiver integration
+document. The peer has50 protocol tests and36 actual-source application boundary
+tests passing with injected transports and fake playback drivers. This is source
+compatibility, not deployment or runtime readiness.
+
+- A normal controller that never produces the operational started callback emits
+  no normal usage/stopped reports. Preparation heartbeat remains all-null/zero.
+- Started queues before subsequent normal evidence. Pause/buffering transitions
+  carry zero elapsed; prior accrued playing time is flushed first, using the
+  corresponding observed position. Renewed ALLOW is remembered only after flushing
+  the old grant's accrued interval. Queued event values/bytes remain immutable.
+- Historical usage requires an actual returned ALLOW and the server's accepted
+  controller/item binding. It can replace matching uncertain usage, never refund
+  unobserved allowance, cross accounting periods or change current DENY/lease state.
+- A late ACK with exact delivered command/device/child/revision/epoch proof can be
+  persisted as inert evidence. Its ordinary `{commandID:eventID,status:persisted}`
+  receipt acknowledges storage only. Expired/superseded commands stay failed or
+  cancelled; no action/time/session/policy state is revived. Fresh release remains
+  a separate current command and acknowledgement.
+- The bounded recovery window is seven days. Unknown/never-delivered/cross-subject,
+  epoch and idempotency-integrity failures remain failures. The client retains them
+  and holds rather than discarding evidence. A delayed first-start report after an
+  external policy change uses the separately gated extension below.
+- Five-second foreground polling/heartbeat capacity must be demonstrated before
+  commissioning. The one-second watchdog is local and does not generate receipts.
+  No cadence, registration limit or production storage limit changed on the peer.
+
+### Delayed first-start recovery — agreed extension, commissioning off
+
+`unconfirmed-start-recovery-v1` is separately default-off and requires this validated
+receiver implementation; old clients cannot be commissioned to ignore reset fields.
+An original actually returned ALLOW plus exact scope/catalog proof may retain an
+otherwise unbound controller's reports only as private unconfirmed evidence. Parent
+show/time DENY remains effective. No confirmed history/used credit, new controller,
+lease, quota refund, media read/import or existing parent-control change follows.
+Retire only that original still-unbound reservation to unconfirmed so another
+controller cannot share its uncertain interval. Unknown/never-issued grants fail.
+
+The persisted event receipt adds both fields:
+
+```json
+{"commandID":"EVENT-UUID","status":"persisted","evidenceDisposition":"unconfirmed","unconfirmedPlaybackSessionID":"EXACT-SUBMITTED-SESSION"}
+```
+
+Only normal started/progress/paused/buffering/ended/stopped with no command ID and
+nonempty item/session may use this metadata. Unknown disposition, incomplete pair,
+wrong event/session or control/ambient/heartbeat use fails closed. Native receipt
+decoding is separate from parent-action receipts. A malformed receipt retains the
+queued event and sets a reporting fault.
+
+The receiver stops/retires only the exact matching active controller; replacement
+sessions are untouched. Preserve/drain the immutable old FIFO and actual stop, then
+read fresh policy. Never autoplay or manufacture a start from a persistence receipt.
+A later normal user Play uses fresh permission and a new real controller/start.
+The server is producing actual transaction fixtures; source client tests do not
+establish installed capability or household acceptance.

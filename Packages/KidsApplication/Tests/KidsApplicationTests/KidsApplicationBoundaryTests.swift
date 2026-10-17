@@ -145,6 +145,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         var requests: [URLRequest] = []
         var policies: [String]
         var eventStatuses: [Int]
+        var unconfirmedSessions: [UUID: String] = [:]
         let holdPolicy: Bool
         let conflictCode: String
         let policyEntered = AsyncStream<Void>.makeStream()
@@ -162,6 +163,10 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             policyContinuation = nil
         }
 
+        func markUnconfirmed(_ event: ReceiverEvent, sessionID: String? = nil) {
+            unconfirmedSessions[event.eventID] = sessionID ?? event.playbackSessionID
+        }
+
         func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             requests.append(request)
             let status: Int
@@ -169,8 +174,16 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             if request.httpMethod == "POST" {
                 status = eventStatuses.isEmpty ? 200 : eventStatuses.removeFirst()
                 let event = try JSONDecoder().decode(ReceiverEvent.self, from: XCTUnwrap(request.httpBody))
-                data = status == 409 ? Data("{\"error\":\"\(conflictCode)\"}".utf8) :
-                    Data("{\"commandID\":\"\(event.eventID)\",\"status\":\"persisted\"}".utf8)
+                if status == 409 {
+                    data = Data("{\"error\":\"\(conflictCode)\"}".utf8)
+                } else {
+                    var receipt = ["commandID": event.eventID.uuidString, "status": "persisted"]
+                    if let session = unconfirmedSessions[event.eventID] {
+                        receipt["evidenceDisposition"] = "unconfirmed"
+                        receipt["unconfirmedPlaybackSessionID"] = session
+                    }
+                    data = try JSONSerialization.data(withJSONObject: receipt)
+                }
             } else {
                 status = 200
                 guard let json = policies.first else { throw ParentControlError.malformedResponse }
@@ -716,6 +729,104 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         let final = try JSONDecoder().decode(ReceiverEvent.self, from: XCTUnwrap(requests[3].httpBody))
         XCTAssertEqual(final, releaseAcknowledgement)
         XCTAssertTrue(runtime.events.isEmpty)
+    }
+
+    func testUnconfirmedStartRetiresMatchingControllerDrainsEvidenceThenFetchesPermission() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [
+            policyJSON(model, enabled: true, revision: 2, commandID: UUID()),
+            policyJSON(model, enabled: true, revision: 4, commandID: UUID())
+        ])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        model.playbackBegan(playback)
+        model.queueViewingEvent(.progress, controller: playback, elapsed: 2)
+        let originalReports = runtime.events.filter { $0.kind == .started || $0.kind == .progress }
+        let started = try XCTUnwrap(originalReports.first { $0.kind == .started })
+        await transport.markUnconfirmed(started)
+        let recovering = Task { try await model.synchronizeViewingPolicy(runtime) }
+        for await _ in driver.entered.stream {
+            break
+        }
+        XCTAssertTrue(model.viewingHeld)
+        XCTAssertEqual(runtime.lease.policy?.revision, 2)
+        XCTAssertTrue(model.activePlayback === playback)
+        let duringStop = await transport.requests
+        XCTAssertEqual(duringStop.filter { $0.httpMethod == "GET" }.count, 1)
+        driver.resume?.resume()
+        try await recovering.value
+        XCTAssertNil(model.activePlayback)
+        XCTAssertFalse(model.viewingHeld)
+        XCTAssertEqual(runtime.lease.policy?.revision, 4)
+        let requests = await transport.requests
+        let sent = try requests.compactMap { request in
+            try request.httpBody.map { try JSONDecoder().decode(ReceiverEvent.self, from: $0) }
+        }
+        XCTAssertTrue(originalReports.allSatisfy { sent.contains($0) })
+        let usage = sent.filter { [.started, .progress, .stopped].contains($0.kind) }
+        XCTAssertEqual(usage.map(\.kind), [.started, .progress, .stopped])
+        XCTAssertTrue(usage.allSatisfy { $0.policyRevision == 2 && $0.playbackSessionID == playback.id.uuidString })
+        XCTAssertEqual(requests.last?.httpMethod, "GET")
+        XCTAssertFalse(runtime.events.contains { $0.kind == .started })
+    }
+
+    func testUnconfirmedOldControllerReceiptCannotStopItsReplacement() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let first = controller(
+            KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"),
+            driver: SuspendedDriver(),
+            model: model
+        )
+        model.activePlayback = first
+        let transport = ReceiverTransport(policies: [
+            policyJSON(model, enabled: true, revision: 2, commandID: UUID()),
+            policyJSON(model, enabled: true, revision: 4, commandID: UUID())
+        ])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        model.playbackBegan(first)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        await transport.markUnconfirmed(started)
+        let replacementDriver = SuspendedDriver()
+        let replacement = controller(first.item, driver: replacementDriver, model: model)
+        model.activePlayback = replacement
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertTrue(model.activePlayback === replacement)
+        XCTAssertEqual(replacementDriver.pauses, 0)
+        XCTAssertFalse(replacement.hasEndedPlayback)
+        XCTAssertFalse(model.viewingHeld)
+        XCTAssertFalse(runtime.events.contains { $0.kind == .started || $0.kind == .stopped })
+    }
+
+    func testMismatchedRecoveryReceiptKeepsEvidenceAndFaultsBeforePolicyRefresh() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        let event = ReceiverEvent(
+            deviceID: configuration.deviceID.uuidString,
+            childUserID: "kid",
+            policyRevision: 2,
+            playbackSessionID: UUID().uuidString,
+            itemID: "movie",
+            kind: .started,
+            positionSeconds: 1
+        )
+        runtime.events = [event]
+        await transport.markUnconfirmed(event, sessionID: "other-controller")
+        do { try await model.synchronizeViewingPolicy(runtime)
+            XCTFail("Malformed recovery metadata cannot acknowledge an event")
+        } catch { XCTAssertEqual(error as? ParentControlError, .malformedResponse) }
+        XCTAssertEqual(runtime.events, [event])
+        XCTAssertTrue(runtime.reportingFault)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.map(\.httpMethod), ["POST"])
+        XCTAssertNil(runtime.lease.policy)
     }
 
     func testActivatedReceiverRequiresFreshPermissionBeforeAnyPlaybackPreparation() throws {

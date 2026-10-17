@@ -133,8 +133,9 @@ manager root in a separately authenticated ephemeral web sheet. Sign in there, t
 choose its Parents entry. The frozen authenticated page is `/admin/parent-control`;
 opening it directly in a fresh browser returns401, so the phone does not assume it
 can skip manager login. No native Jellyfin or parent-service token is forwarded to
-this browser. The backend provisioning UI remains uninstalled, and its clean sign-in
-handoff/activation screen remains backend work. Preview mode disables the setup action.
+this browser. The backend provisioning/activation UI is reported implemented in
+source but remains uninstalled; the clean authenticated handoff still requires an
+integration trial. Preview mode disables the setup action.
 
 “Done” means ending kids viewing inside KidsJellyFin and switching to looping
 birds. It does not power off a television or prevent use of other Apple TV apps.

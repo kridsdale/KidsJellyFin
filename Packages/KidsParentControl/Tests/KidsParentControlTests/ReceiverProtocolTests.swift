@@ -89,6 +89,72 @@ func `control ID is not an event receipt`() async throws {
 }
 
 @Test
+func `unconfirmed receipt requires exact normal evidence correlation`() async throws {
+    let normal: [ReceiverEvent.Kind] = [.started, .progress, .paused, .buffering, .ended, .stopped]
+    for kind in normal {
+        let event = ReceiverEvent(
+            deviceID: receiverID,
+            childUserID: "kid",
+            policyRevision: 2,
+            playbackSessionID: "original-session",
+            itemID: "approved-item",
+            kind: kind,
+            positionSeconds: 1
+        )
+        let api = try receiverAPI(ReceiverTransport("""
+        {"commandID":"\(event.eventID)","status":"persisted",
+        "evidenceDisposition":"unconfirmed","unconfirmedPlaybackSessionID":"original-session"}
+        """))
+        let receipt = try await api.send(event)
+        #expect(receipt.evidenceDisposition == "unconfirmed")
+        #expect(receipt.unconfirmedPlaybackSessionID == event.playbackSessionID)
+    }
+}
+
+@Test
+func `unknown incomplete or cross-session recovery metadata fails closed`() async throws {
+    let event = ReceiverEvent(
+        deviceID: receiverID,
+        childUserID: "kid",
+        policyRevision: 2,
+        playbackSessionID: "original-session",
+        itemID: "approved-item",
+        kind: .started,
+        positionSeconds: 1
+    )
+    for metadata in [
+        #""evidenceDisposition":"confirmed","unconfirmedPlaybackSessionID":"original-session""#,
+        #""evidenceDisposition":"unconfirmed""#,
+        #""unconfirmedPlaybackSessionID":"original-session""#,
+        #""evidenceDisposition":"unconfirmed","unconfirmedPlaybackSessionID":"other-session""#,
+        #""evidenceDisposition":"unconfirmed","unconfirmedPlaybackSessionID":"""#
+    ] {
+        let api = try receiverAPI(ReceiverTransport("{\"commandID\":\"\(event.eventID)\",\"status\":\"persisted\",\(metadata)}"))
+        await #expect(throws: ParentControlError.malformedResponse) { try await api.send(event) }
+    }
+}
+
+@Test
+func `recovery metadata cannot retire playback through control ambient or heartbeat evidence`() async throws {
+    for kind: ReceiverEvent.Kind in [.heartbeat, .commandApplied, .commandFailed, .ambientStarted, .ambientFailed] {
+        let event = ReceiverEvent(
+            deviceID: receiverID,
+            childUserID: "kid",
+            policyRevision: 2,
+            playbackSessionID: "original-session",
+            itemID: "approved-item",
+            kind: kind,
+            positionSeconds: 1
+        )
+        let api = try receiverAPI(ReceiverTransport("""
+        {"commandID":"\(event.eventID)","status":"persisted",
+        "evidenceDisposition":"unconfirmed","unconfirmedPlaybackSessionID":"original-session"}
+        """))
+        await #expect(throws: ParentControlError.malformedResponse) { try await api.send(event) }
+    }
+}
+
+@Test
 func `invalid device or numbers never leave receiver`() async throws {
     let transport = ReceiverTransport("{}")
     let api = try receiverAPI(transport)
