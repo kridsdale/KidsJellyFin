@@ -13,7 +13,8 @@ let package = Package(
         .package(path: "../KidsDiagnostics"),
         .package(path: "../KidsDomain"),
         .package(path: "../KidsPersistence"),
-        .package(path: "../KidsPlaybackSession")
+        .package(path: "../KidsPlaybackSession"),
+        .package(path: "../KidsParentControl"), .package(path: "../KidsViewingControl")
     ],
     targets: [
         .target(name: "KidsApplication", dependencies: [
@@ -24,7 +25,11 @@ let package = Package(
             .product(name: "KidsDiagnostics", package: "KidsDiagnostics"),
             .product(name: "KidsDomain", package: "KidsDomain"),
             .product(name: "KidsPersistence", package: "KidsPersistence"),
-            .product(name: "KidsPlaybackSession", package: "KidsPlaybackSession")
+            .product(name: "KidsPlaybackSession", package: "KidsPlaybackSession"),
+            .product(name: "KidsParentControl", package: "KidsParentControl"), .product(
+                name: "KidsViewingControl",
+                package: "KidsViewingControl"
+            )
         ]),
         .testTarget(
             name: "KidsApplicationTests",
@@ -34,6 +39,7 @@ let package = Package(
                 .product(name: "KidsCatalog", package: "KidsCatalog"),
                 .product(name: "KidsDiagnostics", package: "KidsDiagnostics"),
                 .product(name: "KidsDomain", package: "KidsDomain"),
+                .product(name: "KidsParentControl", package: "KidsParentControl"),
                 .product(name: "KidsPlaybackSession", package: "KidsPlaybackSession")
             ]
         )

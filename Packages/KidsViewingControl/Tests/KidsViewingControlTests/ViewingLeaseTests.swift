@@ -1,0 +1,258 @@
+//
+// Swiftfin is subject to the terms of the Mozilla Public
+// License, v2.0. If a copy of the MPL was not distributed with this
+// file, you can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2026 Jellyfin & Jellyfin Contributors
+//
+
+import Foundation
+import KidsDomain
+import KidsParentControl
+@testable import KidsViewingControl
+import Testing
+
+private let server = "10000000-0000-4000-8000-000000000001"
+private let child = "10000000-0000-4000-8000-000000000003"
+private let device = UUID(uuidString: "10000000-0000-4000-8000-000000000004")!
+private let binding = KidsBinding(serverID: server, userID: child, showsID: "shows", moviesID: "movies")
+private let episode = KidsItem(id: "episode", name: "Snow", kind: .episode, libraryID: "shows", seriesID: "bear", season: 1, episode: 1)
+
+// Semantic copy of server fixture receiver-policy-initial.json. The source bundle
+// digest is recorded in docs/engineering/parents-receiver-integration.md.
+private let baseJSON = #"{"birdItemID":null,"blockedEpisodeIDs":[],"blockedShowIDs":[],"childUserID":"10000000-0000-4000-8000-000000000003","commands":[],"deadline":"2026-10-17T12:02:00.000Z","deviceID":"10000000-0000-4000-8000-000000000004","finishPlaybackSessionID":null,"revision":2,"serverID":"10000000-0000-4000-8000-000000000001","serverTime":"2026-10-17T12:00:00.000Z","shuffle":{"preferUnwatched":false,"preferredShowIDs":[],"repeatCooldownDays":0},"validUntil":"2026-10-17T12:00:30.000Z","viewingAllowed":true}"#
+
+private func policy(_ changes: [String: Any] = [:]) throws -> ReceiverPolicy {
+    var json = try JSONSerialization.jsonObject(with: Data(baseJSON.utf8)) as! [String: Any]
+    changes.forEach { json[$0.key] = $0.value }
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .custom { value in
+        let text = try value.singleValueContainer().decode(String.self)
+        let parser = ISO8601DateFormatter()
+        parser.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return try #require(parser.date(from: text))
+    }
+    return try decoder.decode(ReceiverPolicy.self, from: JSONSerialization.data(withJSONObject: json))
+}
+
+private func lease(_ changes: [String: Any] = [:]) throws -> ViewingLease {
+    var value = ViewingLease(serverID: server, childUserID: child, deviceID: device)
+    try value.accept(policy(changes), requestStartedNS: 0, receivedNS: 1_000_000_000)
+    return value
+}
+
+@Test
+func `initial paired lease is closed and restarts cannot mint time`() {
+    let value = ViewingLease(serverID: server, childUserID: child, deviceID: device)
+    #expect(!value.allowsNormalViewing(at: 0))
+    #expect(!value.permits(episode, binding: binding, at: 1_000_000_000))
+}
+
+@Test
+func `network delay is subtracted and expiry uses monotonic time`() throws {
+    var value = ViewingLease(serverID: server, childUserID: child, deviceID: device)
+    try value.accept(policy(), requestStartedNS: 0, receivedNS: 10_000_000_000)
+    #expect(value.allowsNormalViewing(at: 29_999_999_999))
+    #expect(!value.allowsNormalViewing(at: 30_000_000_000))
+    #expect(!value.allowsNormalViewing(at: 9_000_000_000))
+}
+
+@Test
+func `overly long lease and cross identity are rejected`() throws {
+    for change: [String: Any] in [["validUntil": "2026-10-17T12:00:31.000Z"], ["deviceID": "tvOS_\(device)"], ["childUserID": "other"]] {
+        var value = ViewingLease(serverID: server, childUserID: child, deviceID: device)
+        #expect(throws: (any Error).self) { try value.accept(policy(change), requestStartedNS: 0, receivedNS: 0) }
+        #expect(!value.allowsNormalViewing(at: 0))
+    }
+}
+
+@Test
+func `stale responses cannot replace an accepted policy`() throws {
+    var value = try lease()
+    #expect(throws: ParentControlError.serverMismatch) { try value.accept(
+        policy(["revision": 1]),
+        requestStartedNS: 2_000_000_000,
+        receivedNS: 3_000_000_000
+    ) }
+    #expect(throws: ParentControlError.serverMismatch) { try value.accept(policy(), requestStartedNS: 0, receivedNS: 3_000_000_000) }
+}
+
+@Test
+func `server deadline wins before lease expiry`() throws {
+    let value = try lease(["deadline": "2026-10-17T12:00:10.000Z"])
+    #expect(value.allowsNormalViewing(at: 9_000_000_000))
+    #expect(!value.allowsNormalViewing(at: 10_000_000_000))
+}
+
+@Test
+func `deny and zero length server policy end viewing immediately`() throws {
+    let value = try lease(["viewingAllowed": false, "validUntil": "2026-10-17T12:00:00.000Z"])
+    #expect(!value.allowsNormalViewing(at: 1_000_000_000))
+}
+
+@Test
+func `restrictions never broaden original approved library boundary`() throws {
+    let value = try lease()
+    #expect(value.permits(episode, binding: binding, at: 2_000_000_000))
+    var other = episode
+    other.libraryID = "adult"
+    #expect(!value.permits(other, binding: binding, at: 2_000_000_000))
+    var otherBinding = binding
+    otherBinding.userID = "other"
+    #expect(!value.permits(episode, binding: otherBinding, at: 2_000_000_000))
+    #expect(try !lease(["blockedShowIDs": ["bear"]]).permits(episode, binding: binding, at: 2_000_000_000))
+    #expect(try !lease(["blockedEpisodeIDs": ["episode"]]).permits(episode, binding: binding, at: 2_000_000_000))
+    #expect(try !lease(["birdItemID": "episode"]).permits(episode, binding: binding, at: 2_000_000_000))
+}
+
+@Test
+func `pairing and missing flags never activate or deactivate`() throws {
+    #expect(try !ViewingLease.nextActivation(current: false, policy: policy()))
+    #expect(try ViewingLease.nextActivation(current: true, policy: policy()))
+    #expect(try ViewingLease.nextActivation(current: false, policy: policy(["enforcementEnabled": true])))
+    #expect(try ViewingLease.nextActivation(current: true, policy: policy(["enforcementEnabled": false])))
+}
+
+@Test
+func `deactivation needs explicit correlated release`() throws {
+    let release: [String: Any] = ["commandID": UUID().uuidString, "kind": "release"]
+    #expect(try !ViewingLease.nextActivation(current: true, policy: policy(["enforcementEnabled": false, "policyControl": release])))
+    #expect(try ViewingLease.nextActivation(current: true, policy: policy(["policyControl": release])))
+}
+
+@Test
+func `finish EOF does not transfer to another session`() throws {
+    let id = UUID().uuidString
+    let value = try lease(["finishPlaybackSessionID": id, "policyControl": ["commandID": UUID().uuidString, "kind": "finishEpisode"]])
+    #expect(value.endsAtEOF(playbackSessionID: id))
+    #expect(!value.endsAtEOF(playbackSessionID: UUID().uuidString))
+}
+
+@Test
+func `remote commands are bound to session and expire independently`() throws {
+    let id = UUID().uuidString
+    let value = try lease(["commands": [[
+        "commandID": UUID().uuidString,
+        "action": "skip",
+        "playbackSessionID": id,
+        "expiresAt": "2026-10-17T12:00:05.000Z"
+    ]]])
+    let command = try #require(value.policy?.commands.first)
+    #expect(value.mayApply(command, playbackSessionID: id, at: 4_000_000_000))
+    #expect(!value.mayApply(command, playbackSessionID: id, at: 5_000_000_000))
+    #expect(!value.mayApply(command, playbackSessionID: "later-session", at: 4_000_000_000))
+}
+
+@Test
+func `generic holds and release cannot authorize birds`() throws {
+    #expect(try lease(["birdItemID": "birds"]).ambientCommandID(latchedControlID: nil, at: 130_000_000_000) == nil)
+    let id = UUID()
+    let released = try lease(["birdItemID": "birds", "policyControl": ["commandID": id.uuidString, "kind": "release"]])
+    #expect(released.ambientCommandID(latchedControlID: id, at: 130_000_000_000) == nil)
+}
+
+@Test
+func `birds require due deadline or exact completed control`() throws {
+    let id = UUID()
+    let countdown = try lease(["birdItemID": "birds", "policyControl": ["commandID": id.uuidString, "kind": "countdown"]])
+    #expect(countdown.ambientCommandID(latchedControlID: nil, at: 31_000_000_000) == nil)
+    #expect(countdown.ambientCommandID(latchedControlID: nil, at: 120_000_000_000) == id)
+    let finish = try lease(["birdItemID": "birds", "policyControl": ["commandID": id.uuidString, "kind": "finishEpisode"]])
+    #expect(finish.ambientCommandID(latchedControlID: UUID(), at: 2_000_000_000) == nil)
+    #expect(finish.ambientCommandID(latchedControlID: id, at: 2_000_000_000) == id)
+    let absentBird = try lease(["policyControl": ["commandID": id.uuidString, "kind": "countdown"]])
+    #expect(absentBird.ambientCommandID(latchedControlID: id, at: 130_000_000_000) == nil)
+}
+
+@Test
+func `freshness can relax but never restrictions`() throws {
+    let watched = KidsItem(id: "watched", name: "Watched", kind: .episode, libraryID: "shows", seriesID: "bear", season: 1, episode: 2)
+    let forbidden = KidsItem(
+        id: "forbidden",
+        name: "Forbidden",
+        kind: .episode,
+        libraryID: "shows",
+        seriesID: "bear",
+        season: 1,
+        episode: 3
+    )
+    let value = try lease([
+        "blockedEpisodeIDs": ["forbidden"],
+        "shuffle": ["preferUnwatched": true, "repeatCooldownDays": 7, "preferredShowIDs": []],
+        "shuffleContext": ["complete": true, "watchedItemIDs": ["watched"], "recentItemIDs": ["watched", "episode"]]
+    ])
+    #expect(value.shuffleCandidates([watched, forbidden, episode], binding: binding, at: 2_000_000_000).map(\.id) == ["episode"])
+}
+
+@Test
+func `incomplete history cannot classify unwatched or fresh items`() throws {
+    let watched = KidsItem(id: "watched", name: "Watched", kind: .episode, libraryID: "shows", seriesID: "bear", season: 1, episode: 2)
+    let forbidden = KidsItem(
+        id: "forbidden",
+        name: "Forbidden",
+        kind: .episode,
+        libraryID: "shows",
+        seriesID: "bear",
+        season: 1,
+        episode: 3
+    )
+    for completeness: Bool? in [nil, false] {
+        var context: [String: Any] = ["watchedItemIDs": ["watched"], "recentItemIDs": ["watched"]]
+        if let completeness {
+            context["complete"] = completeness
+        }
+        let value = try lease([
+            "blockedEpisodeIDs": ["forbidden"],
+            "shuffle": ["preferUnwatched": true, "repeatCooldownDays": 7, "preferredShowIDs": []],
+            "shuffleContext": context
+        ])
+        #expect(value.shuffleCandidates([watched, forbidden, episode], binding: binding, at: 2_000_000_000).map(\.id) == [
+            "watched",
+            "episode"
+        ])
+    }
+}
+
+@Test
+func `operational playing time excludes seeks pauses and buffering`() {
+    #expect(ViewingLease.playingInterval(
+        previousPosition: 10,
+        position: 11,
+        elapsedSeconds: 1,
+        playing: true,
+        paused: false,
+        buffering: false
+    ) == 1)
+    #expect(ViewingLease.playingInterval(
+        previousPosition: 10,
+        position: 100,
+        elapsedSeconds: 1,
+        playing: true,
+        paused: false,
+        buffering: false
+    ) == 0)
+    #expect(ViewingLease.playingInterval(
+        previousPosition: 10,
+        position: 11,
+        elapsedSeconds: 1,
+        playing: true,
+        paused: true,
+        buffering: false
+    ) == 0)
+    #expect(ViewingLease.playingInterval(
+        previousPosition: 10,
+        position: 11,
+        elapsedSeconds: 1,
+        playing: true,
+        paused: false,
+        buffering: true
+    ) == 0)
+    #expect(ViewingLease.playingInterval(
+        previousPosition: 10,
+        position: .nan,
+        elapsedSeconds: 1,
+        playing: true,
+        paused: false,
+        buffering: false
+    ) == 0)
+}

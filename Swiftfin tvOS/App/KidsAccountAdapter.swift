@@ -62,6 +62,24 @@ final class SwiftfinKidsAccountHost: KidsAccountHost {
         try Container.shared.keychainService().write(pin, to: .parentPIN)
     }
 
+    var receiverConfiguration: KidsReceiverConfiguration? {
+        get throws {
+            guard let value = try Container.shared.keychainService().read(.receiverConfiguration),
+                  let data = value.data(using: .utf8) else { return nil }
+            return try JSONDecoder().decode(KidsReceiverConfiguration.self, from: data)
+        }
+    }
+
+    func storeReceiverConfiguration(_ configuration: KidsReceiverConfiguration?) throws {
+        if let configuration {
+            let data = try JSONEncoder().encode(configuration)
+            guard let value = String(data: data, encoding: .utf8) else { throw KidsContractError.denied }
+            try Container.shared.keychainService().write(value, to: .receiverConfiguration)
+        } else {
+            try Container.shared.keychainService().remove(.receiverConfiguration)
+        }
+    }
+
     func authenticate(
         url: URL,
         serverID: String,

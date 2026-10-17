@@ -15,6 +15,7 @@ public enum CredentialKey: Hashable, Sendable {
     case accessToken(userID: String)
     case userPIN(userID: String)
     case parentPIN
+    case receiverConfiguration
 
     var account: String {
         get throws {
@@ -27,6 +28,8 @@ public enum CredentialKey: Hashable, Sendable {
                 return "\(id)-pin"
             case .parentPIN:
                 return "kids.parentPin.v1"
+            case .receiverConfiguration:
+                return "kids.receiver.configuration.v1"
             }
         }
     }

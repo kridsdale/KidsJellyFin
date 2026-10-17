@@ -8,10 +8,17 @@ INPUTS = (
     "Packages/KidsDiagnostics/Sources/KidsDiagnostics",
     "Packages/SwiftfinVLC/Sources/SwiftfinVLC",
     "Packages/KidsPlaybackSession/Sources/KidsPlaybackSession",
-    "Packages/KidsApplication/Sources/KidsApplication/KidsAppModel.swift",
+    "Packages/KidsApplication/Sources/KidsApplication",
+    "Packages/KidsViewingControl/Sources/KidsViewingControl",
+    "Packages/KidsParentControl/Sources/KidsParentControl",
+    "Packages/KidsAccounts/Sources/KidsAccounts",
+    "Packages/KidsExperience/Sources/KidsExperience",
+    "Packages/SwiftfinCredentials/Sources/SwiftfinCredentials",
     "Swiftfin tvOS/App/KidsPlaybackAdapter.swift",
+    "Swiftfin tvOS/App/KidsAccountAdapter.swift",
     "Swiftfin tvOS/App/SwiftfinApp.swift",
     "Swiftfin tvOS/Resources/Info.plist",
+    "Scripts/Kids/evidence_revision.py",
 )
 
 def implementation_digest(root: Path = ROOT) -> str:

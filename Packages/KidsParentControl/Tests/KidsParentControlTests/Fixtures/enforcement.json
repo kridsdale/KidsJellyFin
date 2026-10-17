@@ -1,0 +1,107 @@
+{
+  "before-policy-denial": {
+    "body": {
+      "error": "receiver_not_ready",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 501
+  },
+  "disable-persisted": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "abcdefab-0000-4000-8000-000000000194",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": false,
+    "revision": 3,
+    "status": "persisted"
+  },
+  "disable-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "abcdefab-0000-4000-8000-000000000194",
+    "enabled": false,
+    "expectedRevision": 2
+  },
+  "disabled-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": null,
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": false,
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-000000000194",
+      "kind": "release"
+    },
+    "revision": 3,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:00.000Z",
+    "viewingAllowed": false
+  },
+  "enable-persisted": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "abcdefab-0000-4000-8000-000000000192",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": true,
+    "revision": 1,
+    "status": "persisted"
+  },
+  "enable-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "abcdefab-0000-4000-8000-000000000192",
+    "enabled": true,
+    "expectedRevision": 0
+  },
+  "enabled-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": null,
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": true,
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-000000000192",
+      "kind": "release"
+    },
+    "revision": 2,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:30.000Z",
+    "viewingAllowed": true
+  },
+  "final-accounting": {
+    "history": 0,
+    "leases": 0
+  },
+  "idle-heartbeat": {
+    "commandID": "abcdefab-0000-4000-8000-000000000191",
+    "status": "persisted"
+  },
+  "racing-idle-heartbeat-denial": {
+    "body": {
+      "error": "lease_mismatch",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 409
+  },
+  "release-applied": {
+    "commandID": "abcdefab-0000-4000-8000-000000000195",
+    "status": "persisted"
+  },
+  "scope": "synthetic-source-only-not-runtime-readiness"
+}

@@ -16,8 +16,10 @@ import KidsArtworkUI
 import KidsCatalog
 import KidsDiagnostics
 import KidsDomain
+import KidsParentControl
 import KidsPersistence
 import KidsPlaybackSession
+import KidsViewingControl
 import SwiftData
 
 // SPDX-License-Identifier: MPL-2.0
@@ -27,8 +29,8 @@ import UIKit
 public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     @Published
     public private(set) var accountRevision = UUID()
-    private let playbackFactory: (any KidsPlaybackSessionFactory)?
-    private let accounts: (any KidsAccountHost)?
+    let playbackFactory: (any KidsPlaybackSessionFactory)?
+    let accounts: (any KidsAccountHost)?
     private let admission: KidsAccountAdmission?
     private let accountScope: KidsAccountScope?
     private var activePlaybackLease: KidsAccountScope.Lease?
@@ -39,6 +41,17 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     public var category: KidsCategory = .shows
     @Published
     public internal(set) var catalog: [KidsCategory: [KidsItem]] = [:]
+    var rawCatalog: [KidsCategory: [KidsItem]] = [:]
+    var viewingRuntime: KidsViewingRuntime?
+    @Published
+    public internal(set) var viewingControlRevision = UUID()
+    @Published
+    public internal(set) var viewingHeld = false
+    @Published
+    public internal(set) var ambientMode = false
+    @Published
+    public internal(set) var viewingControlStatus = "Parent service is not paired."
+    var receiverForeground = true
     @Published
     public internal(set) var loading = true
     @Published
@@ -61,6 +74,9 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         didSet {
             activePlaybackLease = activePlayback == nil ? nil : accountScope?.capture()
             activePlaybackBinding = activePlayback == nil ? nil : binding
+            if let activePlayback {
+                rememberViewingGrant(activePlayback)
+            }
         }
     }
 
@@ -112,7 +128,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         artworkRevision = UUID()
     }
 
-    private func invalidateEpisodeMetadata() {
+    func invalidateEpisodeMetadata() {
         let old = verifiedEpisodes?.value
         verifiedEpisodes = nil
         episodeCache = [:]
@@ -174,7 +190,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     private var skipNextBrowseRefresh = true
     private var refreshGeneration = UUID()
     private var startTask: Task<Void, Never>?
-    private var startGeneration = UUID()
+    var startGeneration = UUID()
     private var speechTask: Task<Void, Never>?
     private let speaker = AVSpeechSynthesizer()
     private var stateURL: URL {
@@ -292,6 +308,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                     MainActor.assumeIsolated {
                         guard let self, self.accountIdentity != identity else { return }
                         self.accountIdentity = identity
+                        self.resetViewingControlIdentity()
                         self.accountRevision = UUID()
                     }
                 }.store(in: &syncObservers)
@@ -303,7 +320,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         }
     }
 
-    private func isCurrentAccount(_ lease: KidsAccountScope.Lease?) -> Bool {
+    func isCurrentAccount(_ lease: KidsAccountScope.Lease?) -> Bool {
         isPreview || lease?.isCurrent == true
     }
 
@@ -312,7 +329,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         guard isCurrentAccount(lease) else { throw CancellationError() }
     }
 
-    private func isCurrentPlayback(_ controller: KidsPlaybackController) -> Bool {
+    func isCurrentPlayback(_ controller: KidsPlaybackController) -> Bool {
         activePlayback === controller && isCurrentAccount(activePlaybackLease) && activePlaybackBinding == binding
     }
 
@@ -365,6 +382,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         loading = true
         catalogComplete = false
         catalog = [:]
+        rawCatalog = [:]
         episodeCache = [:]
         problem = nil
         needsLocalReset = false
@@ -386,6 +404,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         }
         do {
             var expected = stored
+            try self.prepareViewingControls(binding: stored)
             #if DEBUG
             if validationScenario == "changed-libraries" {
                 expected = KidsBinding(
@@ -413,7 +432,8 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                 guard self.isCurrentAccount(accountLease), generation == self.refreshGeneration,
                       !Task.isCancelled else { throw CancellationError() }
                 let firstPublication = self.catalog[category] == nil
-                self.catalog[category] = items
+                self.rawCatalog[category] = items
+                self.catalog[category] = self.filteredForViewing(items, binding: stored)
                 self.loading = false
                 if firstPublication {
                     let phase: KidsPerformancePhase = category == .shows ? .firstShowsReady : .firstMoviesReady
@@ -497,8 +517,9 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
             guard isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding, refreshGeneration == generation else {
                 throw CancellationError()
             }
-            episodeCache[show.id] = items
-            return items
+            let filtered = filteredForViewing(items, binding: binding)
+            episodeCache[show.id] = filtered
+            return filtered
         } catch {
             guard isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding, refreshGeneration == generation else {
                 throw CancellationError()
@@ -917,7 +938,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         }
     }
 
-    private func beginPlayback(
+    func beginPlayback(
         _ title: KidsItem,
         mode: KidsPlaybackMode,
         explicitEpisode: KidsItem? = nil,
@@ -925,7 +946,8 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         retryPosition: Double = 0,
         continuing: Bool = false
     ) {
-        guard startTask == nil, activePlayback == nil, let api, let binding else { return }
+        guard startTask == nil, activePlayback == nil, let api, let binding,
+              permitsViewing(title, binding: binding) else { return }
         let accountLease = accountScope?.capture()
         guard isCurrentAccount(accountLease) else { return }
         let variant = KidsPerformanceVariant(rawValue: mode.rawValue) ?? .unknown
@@ -974,6 +996,8 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
             await KidsPerformance.$current.withValue(trace) { [self] in
                 do {
                     try self.checkAccount(accountLease)
+                    try await self.acquireViewingLease()
+                    try self.checkAccount(accountLease)
                     var item: KidsItem
                     var position = 0.0
                     var allEpisodes: [KidsItem] = []
@@ -997,7 +1021,10 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                             item = current
                             position = retained.seconds
                         } else if mode == .shuffle {
-                            guard let draw = try self.state?.nextShuffle(showID: title.id, episodes: allEpisodes)
+                            guard let draw = try self.state?.nextShuffle(
+                                showID: title.id,
+                                episodes: self.shuffleForViewing(allEpisodes, binding: binding)
+                            )
                             else { throw KidsContractError.unavailable }
                             item = draw
                         } else {
@@ -1025,6 +1052,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                         )
                     }
                     let verified = try await api.authorize(itemID: item.id, expectedKind: item.kind, binding: binding)
+                    guard self.permitsViewing(verified, binding: binding) else { throw KidsContractError.denied }
                     trace?.mark(.authorized)
                     guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding else { trace?.finish(.cancelled)
                         return
@@ -1050,7 +1078,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                         )
                     }
                     guard self.isCurrentAccount(accountLease), !Task.isCancelled, self.binding == binding,
-                          self.startGeneration == generation
+                          self.startGeneration == generation, self.permitsViewing(verified, binding: binding)
                     else { await controller.stop()
                         trace?.finish(.cancelled)
                         return
@@ -1097,7 +1125,11 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         let accountLease = playback == nil ? accountScope?.capture() : activePlaybackLease
         let originalBinding = binding
         if let playback {
+            flushViewingProgress(playback)
             await playback.stop()
+            if viewingRuntime?.ambientSessionID != playback.id {
+                queueViewingEvent(.stopped, controller: playback)
+            }
         }
         guard startGeneration == generation, activePlayback === playback else { return }
         activePlayback = nil
@@ -1116,6 +1148,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     }
 
     public func background() {
+        receiverForeground = false
         cancelPendingStart()
         lockParents()
         activePlayback?.pauseOnBackground()
@@ -1123,6 +1156,11 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
 
     public func playbackBegan(_ controller: KidsPlaybackController) {
         guard isCurrentPlayback(controller) else { return }
+        if viewingRuntime?.ambientSessionID == controller.id {
+            queueViewingEvent(.ambientStarted, controller: controller)
+            return
+        }
+        queueViewingEvent(.started, controller: controller)
         do { try state?.began(item: controller.item, mode: controller.mode, showID: controller.title.id)
             lastPlayback = .now
             persist(intent: .playback)
@@ -1138,7 +1176,15 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     }
 
     public func completed(_ controller: KidsPlaybackController) async {
+        if isCurrentPlayback(controller), viewingRuntime?.ambientSessionID == controller.id {
+            viewingRuntime?.ambientAttempts = 0
+            await stopPlayback(endSession: false)
+            return
+        }
         guard isCurrentPlayback(controller), controller.allowsCheckpoints else { return }
+        flushViewingProgress(controller)
+        queueViewingEvent(.ended, controller: controller)
+        let finishForParent = viewingRuntime?.lease.endsAtEOF(playbackSessionID: controller.id.uuidString) == true
         let accountLease = activePlaybackLease
         let originalBinding = binding
         do {
@@ -1147,10 +1193,10 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                 state?.endSession()
             }
             persist(intent: .playback)
-            if more {
+            if more && !finishForParent {
                 controller.nextEpisode = controller.mode == .shuffle ? try state?.nextShuffle(
                     showID: controller.title.id,
-                    episodes: controller.episodes
+                    episodes: self.shuffleForViewing(controller.episodes, binding: originalBinding!)
                 ) : try state?.orderedNext(showID: controller.title.id, episodes: controller.episodes).0
                 controller.countdown = 10
                 controller.showCountdown = true
@@ -1158,7 +1204,10 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
             }
             await controller.stop()
             guard isCurrentPlayback(controller) else { return }
-            if !more {
+            if finishForParent {
+                activePlayback = nil
+                await enterViewingHold(latchControl: true)
+            } else if !more {
                 activePlayback = nil
                 sessionFinished = controller.mode == .ordered || controller.mode == .shuffle
                 if sessionFinished {
@@ -1190,6 +1239,11 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
 
     public func playbackFailed(_ controller: KidsPlaybackController, error: KidsPlaybackFailure) {
         guard isCurrentPlayback(controller) else { return }
+        if viewingRuntime?.ambientSessionID == controller.id {
+            queueViewingEvent(.ambientFailed, controller: controller)
+            Task { await self.stopPlayback(endSession: false) }
+            return
+        }
         if error == .authentication {
             show(KidsAPIError.authentication)
             return

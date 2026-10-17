@@ -38,6 +38,8 @@ EXTERNAL_POLICIES = {
     ],
 }
 POLICIES = {
+    "KidsParentControl": ({}, {"Foundation"}),
+    "KidsViewingControl": ({"KidsDomain", "KidsParentControl"}, {"Foundation"}),
     "SwiftfinPermissions": ({}, {"Foundation", "os", "CoreLocation", "LocalAuthentication"}),
     "SwiftfinImageProcessing": ({}, {"Foundation", "CoreGraphics", "UIKit", "SVGKit"}),
     "SwiftfinMPV": ({}, {"Foundation", "MPVUI", "Observation", "SwiftUI"}),
@@ -77,11 +79,11 @@ POLICIES = {
     "SwiftfinVLC": ({"KidsDiagnostics"}, {"Foundation", "Combine", "SwiftUI", "SwiftVLC", "UIKit", "AppKit"}),
     "SwiftfinNowPlaying": ({}, {"Foundation", "MediaPlayer", "UIKit"}),
     "SwiftfinAudioSession": ({"KidsDiagnostics"}, {"Foundation", "OSLog", "AVFAudio"}),
-    "KidsApplication": ({"KidsAccounts","KidsArtwork","KidsArtworkUI","KidsCatalog","KidsDiagnostics","KidsDomain","KidsPersistence","KidsPlaybackSession"}, {"Foundation", "Combine", "CoreData", "SwiftData", "UIKit", "AVFoundation"}),
+    "KidsApplication": ({"KidsAccounts","KidsArtwork","KidsArtworkUI","KidsCatalog","KidsDiagnostics","KidsDomain","KidsPersistence","KidsPlaybackSession","KidsParentControl","KidsViewingControl"}, {"Foundation", "Combine", "CoreData", "SwiftData", "UIKit", "AVFoundation"}),
     "KidsExperience": ({"KidsAccounts","KidsApplication","KidsCatalog","KidsDiagnostics","KidsDiagnosticsUI","KidsDomain","KidsPlaybackSession","SwiftfinUIState"}, {"SwiftUI", "Combine"}),
     "KidsDomain": ({}, {"Foundation"}),
     "KidsAccounts": ({"KidsDomain","SwiftfinAsyncStreams"}, {"Foundation", "Combine"}),
-    "KidsDiagnostics": ({"KidsDomain"}, {"Foundation", "OSLog", "os"}),
+    "KidsDiagnostics": ({"KidsDomain"}, {"Foundation", "OSLog", "os", "CoreFoundation", "Darwin", "Glibc", "CryptoKit"}),
     "KidsCatalog": ({"KidsDomain", "KidsDiagnostics"}, {"Foundation"}),
     "KidsArtwork": ({"KidsDomain", "KidsCatalog", "KidsDiagnostics"}, {"Foundation"}),
     "KidsArtworkUI": ({"KidsDomain", "KidsCatalog", "KidsDiagnostics", "KidsArtwork"}, {"UIKit", "Combine"}),
@@ -130,7 +132,7 @@ def validate_source(name, source, dependencies, frameworks):
 def application_import_problems(root):
     """Composition uses explicit imports; native permission drivers stay with their owner."""
     problems = []
-    for directory in ("Shared", "Swiftfin", "Swiftfin tvOS"):
+    for directory in ("Shared", "Swiftfin", "Swiftfin tvOS", "KidsParents"):
         for source in sorted((root / directory).rglob("*.swift")):
             if not source.resolve().is_relative_to(root.resolve()):
                 problems.append(f"{source.relative_to(root)}: application source escapes the checkout")

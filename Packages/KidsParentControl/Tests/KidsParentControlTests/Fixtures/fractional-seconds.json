@@ -1,0 +1,96 @@
+{
+  "grant": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:00.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "revision": 2,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:30.000Z",
+    "viewingAllowed": true
+  },
+  "history-item": {
+    "deviceName": "Synthetic TV",
+    "evidence": "clientReported",
+    "itemID": "10000000-0000-4000-8000-000000000006",
+    "startedAt": "2026-10-17T12:00:00.000Z",
+    "title": "Synthetic approved episode",
+    "watchedSeconds": 1
+  },
+  "private-accounting-sample-not-public-DTO": {
+    "reserved": 28.77,
+    "unconfirmed": 0.0,
+    "used": 1.23
+  },
+  "progress-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": null,
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "elapsedPlayingSeconds": 1.23,
+    "eventID": "abcdefab-0000-4000-8000-0000000002c0",
+    "itemID": "10000000-0000-4000-8000-000000000006",
+    "kind": "progress",
+    "playbackSessionID": "fractional-controller",
+    "policyRevision": 2,
+    "positionSeconds": 1.23
+  },
+  "progress-response": {
+    "commandID": "abcdefab-0000-4000-8000-0000000002c0",
+    "status": "persisted"
+  },
+  "scope": "synthetic-source-only-not-runtime-readiness",
+  "settings-after-reservation-expires": {
+    "budget": {
+      "bonusSeconds": 0,
+      "dailyMinutes": 5,
+      "enabled": true,
+      "localDate": "2026-10-17",
+      "remainingSeconds": 270,
+      "reservedSeconds": 0,
+      "unconfirmedSeconds": 29,
+      "usedSeconds": 1
+    },
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "excludedEpisodeIDs": [],
+    "revision": 1,
+    "routines": [],
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "timeZone": "UTC"
+  },
+  "settings-with-reservation": {
+    "budget": {
+      "bonusSeconds": 0,
+      "dailyMinutes": 5,
+      "enabled": true,
+      "localDate": "2026-10-17",
+      "remainingSeconds": 270,
+      "reservedSeconds": 29,
+      "unconfirmedSeconds": 0,
+      "usedSeconds": 1
+    },
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "excludedEpisodeIDs": [],
+    "revision": 1,
+    "routines": [],
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "timeZone": "UTC"
+  }
+}

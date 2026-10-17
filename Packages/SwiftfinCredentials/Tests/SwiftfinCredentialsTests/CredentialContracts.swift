@@ -78,7 +78,8 @@ struct CredentialContracts {
         for (key, account) in [
             (CredentialKey.accessToken(userID: "kid"), "kid-accessToken"),
             (.userPIN(userID: "kid"), "kid-pin"),
-            (.parentPIN, "kids.parentPin.v1")
+            (.parentPIN, "kids.parentPin.v1"),
+            (.receiverConfiguration, "kids.receiver.configuration.v1")
         ] {
             driver.items[account] = Data("synthetic-test-value".utf8)
             #expect(try store.read(key) == "synthetic-test-value")

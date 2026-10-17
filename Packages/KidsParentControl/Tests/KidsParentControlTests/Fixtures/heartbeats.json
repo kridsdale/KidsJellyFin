@@ -1,0 +1,219 @@
+{
+  "activated-idle-heartbeat": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": null,
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-0000000001f8",
+      "itemID": null,
+      "kind": "heartbeat",
+      "playbackSessionID": null,
+      "policyRevision": 3,
+      "positionSeconds": null
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-0000000001f8",
+      "status": "persisted"
+    }
+  },
+  "activated-idle-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:00.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": true,
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-0000000001f6",
+      "kind": "release"
+    },
+    "revision": 3,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:30.000Z",
+    "viewingAllowed": true
+  },
+  "ambient-accounting-after": {
+    "historyCount": 1,
+    "historyWatchedSeconds": 5.0,
+    "leaseCount": 0,
+    "reservedSeconds": 0,
+    "unconfirmedSeconds": 25.0,
+    "usedSeconds": 5.0
+  },
+  "ambient-accounting-before": {
+    "historyCount": 1,
+    "historyWatchedSeconds": 5.0,
+    "leaseCount": 0,
+    "reservedSeconds": 0,
+    "unconfirmedSeconds": 25.0,
+    "usedSeconds": 5.0
+  },
+  "ambient-heartbeat": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": null,
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-0000000001ff",
+      "itemID": "10000000-0000-4000-8000-000000000007",
+      "kind": "heartbeat",
+      "playbackSessionID": "fixture-ambient-controller",
+      "policyRevision": 5,
+      "positionSeconds": 1
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-0000000001ff",
+      "status": "persisted"
+    }
+  },
+  "ambient-start": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": "abcdefab-0000-4000-8000-0000000001fd",
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-0000000001fe",
+      "itemID": "10000000-0000-4000-8000-000000000007",
+      "kind": "ambientStarted",
+      "playbackSessionID": "fixture-ambient-controller",
+      "policyRevision": 5,
+      "positionSeconds": 0
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-0000000001fe",
+      "status": "persisted"
+    }
+  },
+  "due-policy": {
+    "birdItemID": "10000000-0000-4000-8000-000000000007",
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:01:05.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": true,
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-0000000001fd",
+      "kind": "countdown"
+    },
+    "revision": 5,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:01:06.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:01:06.000Z",
+    "viewingAllowed": false
+  },
+  "idle-accounting-after": {
+    "historyCount": 0,
+    "historyWatchedSeconds": 0,
+    "leaseCount": 1,
+    "reservedSeconds": 30.0,
+    "unconfirmedSeconds": 0.0,
+    "usedSeconds": 0.0
+  },
+  "idle-accounting-before": {
+    "historyCount": 0,
+    "historyWatchedSeconds": 0,
+    "leaseCount": 1,
+    "reservedSeconds": 30.0,
+    "unconfirmedSeconds": 0.0,
+    "usedSeconds": 0.0
+  },
+  "playing-accounting-after": {
+    "historyCount": 1,
+    "historyWatchedSeconds": 0.0,
+    "leaseCount": 1,
+    "reservedSeconds": 30.0,
+    "unconfirmedSeconds": 0.0,
+    "usedSeconds": 0.0
+  },
+  "playing-accounting-before": {
+    "historyCount": 1,
+    "historyWatchedSeconds": 0.0,
+    "leaseCount": 1,
+    "reservedSeconds": 30.0,
+    "unconfirmedSeconds": 0.0,
+    "usedSeconds": 0.0
+  },
+  "playing-heartbeat": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": null,
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-0000000001fa",
+      "itemID": "10000000-0000-4000-8000-000000000006",
+      "kind": "heartbeat",
+      "playbackSessionID": "fixture-normal-controller",
+      "policyRevision": 3,
+      "positionSeconds": 5
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-0000000001fa",
+      "status": "persisted"
+    }
+  },
+  "released-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:37.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "enforcementEnabled": true,
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-000000000201",
+      "kind": "release"
+    },
+    "revision": 7,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:01:07.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:01:37.000Z",
+    "viewingAllowed": true
+  },
+  "scope": "synthetic-source-only-not-runtime-readiness",
+  "sessionless-playing-denial": {
+    "body": {
+      "error": "heartbeat_session_mismatch",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 409
+  },
+  "stale-ambient-after-release-denial": {
+    "body": {
+      "error": "heartbeat_session_mismatch",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 409
+  },
+  "wrong-ambient-controller-denial": {
+    "body": {
+      "error": "heartbeat_session_mismatch",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 409
+  }
+}

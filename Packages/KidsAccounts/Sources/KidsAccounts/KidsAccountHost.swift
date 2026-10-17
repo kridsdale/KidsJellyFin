@@ -56,6 +56,42 @@ public struct KidsAccountIdentity: Equatable, Hashable, Sendable, CustomStringCo
 
 public typealias KidsAccountCheckpoint = @MainActor @Sendable () throws -> Void
 
+/// Separate device-scoped secret, never the child's Jellyfin access token.
+public struct KidsReceiverConfiguration: Codable, Equatable, Sendable, CustomStringConvertible, CustomDebugStringConvertible {
+    public let serviceURL: URL
+    public let serverID: String
+    public let childUserID: String
+    public let deviceID: UUID
+    public let token: String
+    public let activated: Bool
+    public let latchedControlID: UUID?
+    public init(
+        serviceURL: URL,
+        serverID: String,
+        childUserID: String,
+        deviceID: UUID,
+        token: String,
+        activated: Bool = false,
+        latchedControlID: UUID? = nil
+    ) {
+        self.serviceURL = serviceURL
+        self.serverID = serverID
+        self.childUserID = childUserID
+        self.deviceID = deviceID
+        self.token = token
+        self.activated = activated
+        self.latchedControlID = latchedControlID
+    }
+
+    public var description: String {
+        "KidsReceiverConfiguration(redacted)"
+    }
+
+    public var debugDescription: String {
+        description
+    }
+}
+
 /// SDK-specific authentication data stays inside the host's activation closure.
 /// The application must verify policy and the exact libraries before activation.
 @MainActor
@@ -115,4 +151,16 @@ public protocol KidsAccountHost: AnyObject {
         password: String
     ) async throws -> KidsAuthenticatedAccount
     func signOut(validate: @escaping KidsAccountCheckpoint) async throws
+    var receiverConfiguration: KidsReceiverConfiguration? { get throws }
+    func storeReceiverConfiguration(_ configuration: KidsReceiverConfiguration?) throws
+}
+
+public extension KidsAccountHost {
+    var receiverConfiguration: KidsReceiverConfiguration? {
+        get throws { nil }
+    }
+
+    func storeReceiverConfiguration(_ configuration: KidsReceiverConfiguration?) throws {
+        throw KidsContractError.denied
+    }
 }

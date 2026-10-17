@@ -50,6 +50,10 @@ struct KidsParentView: View {
     private var diagnostics = false
     @State
     private var recovering = false
+    @State
+    private var parentServiceURL = "http://192.168.10.100:8097"
+    @State
+    private var receiverToken = ""
     @FocusState
     private var speechFocused: Bool
     private var needsSetup: Bool {
@@ -96,6 +100,30 @@ struct KidsParentView: View {
                     sessionSection
                     episodeSection
                     connectionSection
+                    Section("Parent phone controls") {
+                        Text("TV installation ID: \(model.receiverInstallationID)")
+                        Text(model.viewingControlStatus).foregroundStyle(.secondary)
+                        TextField("Parent service address", text: $parentServiceURL).textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        SecureField("Device-scoped receiver token", text: $receiverToken).textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                        Text(
+                            "Issue a receiver token for this installation ID in the server's parent administration page. Pairing alone does not activate controls."
+                        )
+                        .font(.footnote)
+                        KidsParentAction("Pair this TV") {
+                            do { try model.pairViewingControls(serviceURL: parentServiceURL, token: receiverToken)
+                                receiverToken = ""
+                                message = "Pairing saved. The administrator must commission and activate this TV on the server."
+                            } catch { message = "Pairing could not be saved. Check the device-scoped token and server address." }
+                        }.disabled(receiverToken.isEmpty)
+                        KidsParentAction("Disconnect parent service", role: .destructive) {
+                            Task { do { try await model.unpairViewingControls()
+                                message = "Parent-service pairing removed."
+                            } catch { message = "A grown-up must unlock before removing this pairing." }
+                            }
+                        }
+                    }
                     Section("Parent PIN") {
                         SecureField("New PIN (4-8 digits)", text: $newPIN).keyboardType(.numberPad)
                         SecureField("Confirm new PIN", text: $confirmPIN).keyboardType(.numberPad)

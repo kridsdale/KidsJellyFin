@@ -301,6 +301,19 @@
 		D076AD5528E1AE1530A6A6B2 /* Packages/SwiftfinAsyncStreams/Tests/SwiftfinAsyncStreamsTests/AsyncOperationGateContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9143187C70818CD2BFE5AE54 /* Packages/SwiftfinAsyncStreams/Tests/SwiftfinAsyncStreamsTests/AsyncOperationGateContracts.swift */; };
 		07A01F3CC872FFEE70C8B338 /* Packages/SwiftfinItemMetadata/Tests/SwiftfinItemMetadataTests/IdentityApplyReloadContracts.swift in Sources */ = {isa = PBXBuildFile; fileRef = 107BD25BB1ECA94267E2FE44 /* Packages/SwiftfinItemMetadata/Tests/SwiftfinItemMetadataTests/IdentityApplyReloadContracts.swift */; };
 		7743832B920B483BF6D4D231 /* SwiftfinAsyncStreams in Frameworks */ = {isa = PBXBuildFile; productRef = 345C6C911BDA247EC39B5AB0 /* SwiftfinAsyncStreams */; };
+		F3CBDBB154CBF748234650C9 /* KidsParentsApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17EC74B2586AE390C798E98F; };
+		2B8A35343391DEFF91A27E93 /* ParentCredentialVault.swift in Sources */ = {isa = PBXBuildFile; fileRef = 90DB1E19AC84041E691CA141; };
+		9FC994DFF526CD80F6ADD01E /* ParentSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6644C9A6686E1831D705EE90; };
+		6E2E9D49B4B0D3AECC54A6AA /* ParentShowsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 1143E00F98A8D1BE251396BF; };
+		03E75F34AB241F6F9170E11F /* ParentYouTubeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 24499B9D6378E063CD938052; };
+		1FD0C04F753E547296F9A80B /* ParentsModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4FB7A0C7F288A7FA77D03345; };
+		50C0A9FA057F646B3D7563A7 /* TonightView.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC4FF83FB05442BE700FA22B; };
+		27E6EAC9074CE3B81358A6F8 /* KidsParentControl in Frameworks */ = {isa = PBXBuildFile; productRef = F63886682994110E9A050E59; };
+		A11600000000000000000001 /* SwiftfinPermissions in Parents Frameworks */ = {isa = PBXBuildFile; productRef = C58B2BB13D75BC7E65C9EA22 /* SwiftfinPermissions */; };
+		CA3A142548E3815891EDF0BD /* ParentsModel+Features.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8ABCE02F55C4CA684E64FDE1; };
+		FC30E24CE3030D853DBE8021 /* FamilyRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A334153FEEEA4C1503F6B27F; };
+		4F6DB3DB11C7CD3F4DEABA94 /* ParentActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8BD4372DEAE0CE063B41CF6; };
+		7FD84756E08EB002E7743182 /* ParentFeaturePreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8304E4040792057B576529; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -427,6 +440,19 @@
 		DD0ECD56FBEBAC8B1929F1A9 /* Packages/SwiftfinAccountStore/Tests/SwiftfinAccountStoreTests/LocalSecurityContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/SwiftfinAccountStore/Tests/SwiftfinAccountStoreTests/LocalSecurityContracts.swift; sourceTree = SOURCE_ROOT; };
 		9143187C70818CD2BFE5AE54 /* Packages/SwiftfinAsyncStreams/Tests/SwiftfinAsyncStreamsTests/AsyncOperationGateContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/SwiftfinAsyncStreams/Tests/SwiftfinAsyncStreamsTests/AsyncOperationGateContracts.swift; sourceTree = SOURCE_ROOT; };
 		107BD25BB1ECA94267E2FE44 /* Packages/SwiftfinItemMetadata/Tests/SwiftfinItemMetadataTests/IdentityApplyReloadContracts.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Packages/SwiftfinItemMetadata/Tests/SwiftfinItemMetadataTests/IdentityApplyReloadContracts.swift; sourceTree = SOURCE_ROOT; };
+		17EC74B2586AE390C798E98F /* KidsParentsApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "KidsParentsApp.swift"; sourceTree = "<group>"; };
+		90DB1E19AC84041E691CA141 /* ParentCredentialVault.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentCredentialVault.swift"; sourceTree = "<group>"; };
+		6644C9A6686E1831D705EE90 /* ParentSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentSettingsView.swift"; sourceTree = "<group>"; };
+		1143E00F98A8D1BE251396BF /* ParentShowsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentShowsView.swift"; sourceTree = "<group>"; };
+		24499B9D6378E063CD938052 /* ParentYouTubeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentYouTubeView.swift"; sourceTree = "<group>"; };
+		4FB7A0C7F288A7FA77D03345 /* ParentsModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentsModel.swift"; sourceTree = "<group>"; };
+		EC4FF83FB05442BE700FA22B /* TonightView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TonightView.swift"; sourceTree = "<group>"; };
+		0538757A13B72E121E6975E2 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		90567C1183A950AF2CB7A1E7 /* KidsJellyFinParents.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; path = KidsJellyFinParents.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		8ABCE02F55C4CA684E64FDE1 /* ParentsModel+Features.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentsModel+Features.swift"; sourceTree = "<group>"; };
+		A334153FEEEA4C1503F6B27F /* FamilyRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyRulesView.swift"; sourceTree = "<group>"; };
+		F8BD4372DEAE0CE063B41CF6 /* ParentActivityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentActivityViews.swift"; sourceTree = "<group>"; };
+		FA8304E4040792057B576529 /* ParentFeaturePreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentFeaturePreviews.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -758,12 +784,14 @@
 			files = (DA84D45AF34706F95986A10B /* SwiftfinCredentials in Frameworks */, );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		F4A4B9413D3190DBA12B699D /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (27E6EAC9074CE3B81358A6F8, A11600000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
 		5377CBE8263B596A003A4E83 = {
 			isa = PBXGroup;
 			children = (
+				B5EC3446A905C3C1D4AD5C37 /* KidsParents */,
 				DAB6EEF3CB5F187B79DC02FE /* Packages/SwiftfinPermissions/Tests/SwiftfinPermissionsTests/PermissionContracts.swift */,
 				910C1DAD0AD4D4DD5CBB4A12 /* Packages/SwiftfinUIState/Tests/SwiftfinUIStateTests/CurrentDateContracts.swift */,
 				A05991277BB492088ED1D37D /* Packages/SwiftfinMediaCatalog/Tests/SwiftfinMediaCatalogTests/ProgramGroupingContracts.swift */,
@@ -829,6 +857,7 @@
 		5377CBF2263B596A003A4E83 /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				90567C1183A950AF2CB7A1E7 /* KidsJellyFinParents.app */,
 				DA848497DFE85BB5A2199134 /* KidsNativeTests.xctest */,
 				CAFE00000000000000000111 /* KidsUITests.xctest */,
 				5377CBF1263B596A003A4E83 /* KidsJellyFin.app */,
@@ -908,6 +937,7 @@
 			name = "Package ownership tests";
 			sourceTree = "<group>";
 		};
+		B5EC3446A905C3C1D4AD5C37 /* KidsParents */ = {isa = PBXGroup; children = (FA8304E4040792057B576529, F8BD4372DEAE0CE063B41CF6, A334153FEEEA4C1503F6B27F, 8ABCE02F55C4CA684E64FDE1, 17EC74B2586AE390C798E98F, 90DB1E19AC84041E691CA141, 6644C9A6686E1831D705EE90, 1143E00F98A8D1BE251396BF, 24499B9D6378E063CD938052, 4FB7A0C7F288A7FA77D03345, EC4FF83FB05442BE700FA22B, 0538757A13B72E121E6975E2, ); path = KidsParents; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1201,6 +1231,17 @@
 			productReference = DA848497DFE85BB5A2199134 /* KidsNativeTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
 		};
+		2200C33831DABFAB60205F0F /* KidsJellyFin Parents */ = {
+ isa = PBXNativeTarget;
+ buildConfigurationList = 6EEAB68888E568C5A133DD7E;
+ buildPhases = (872F994F0950B80D291BE670, F4A4B9413D3190DBA12B699D, A1FD305F2A66AC8035447097, );
+ buildRules = (); dependencies = ();
+ name = "KidsJellyFin Parents";
+ packageProductDependencies = (F63886682994110E9A050E59, C58B2BB13D75BC7E65C9EA22, );
+ productName = KidsJellyFinParents;
+ productReference = 90567C1183A950AF2CB7A1E7;
+ productType = "com.apple.product-type.application";
+ };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -1214,6 +1255,7 @@
 				LastSwiftUpdateCheck = 1250;
 				LastUpgradeCheck = 2630;
 				TargetAttributes = {
+					2200C33831DABFAB60205F0F = {CreatedOnToolsVersion = 27.0; DevelopmentTeam = Z3LBQE3J8T; ProvisioningStyle = Automatic; };
 					5358705F2669D21600D05A09 = {
 						CreatedOnToolsVersion = 12.5;
 						DevelopmentTeam = Z3LBQE3J8T;
@@ -1306,6 +1348,7 @@
 			);
 			mainGroup = 5377CBE8263B596A003A4E83;
 			packageReferences = (
+				7459C6FC4E2A5677FA1EAC15 /* Packages/KidsParentControl */,
 				66511D990DFD262233B90248 /* XCLocalSwiftPackageReference "Packages/SwiftfinPermissions" */,
 				C1299E2895E0D5D3B62BF4EC /* XCLocalSwiftPackageReference "Packages/SwiftfinImageProcessing" */,
 				64A5CA823973250C3F5A99E8 /* XCLocalSwiftPackageReference "Packages/SwiftfinMPV" */,
@@ -1389,6 +1432,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				2200C33831DABFAB60205F0F /* KidsJellyFin Parents */,
 				DA848982777C1D50BB62AE06 /* KidsNativeTests */,
 				CAFE00000000000000000110 /* KidsUITests */,
 				5377CBF0263B596A003A4E83 /* KidsJellyFin iOS */,
@@ -1421,6 +1465,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		DA846CEDB9CB6E3DA32D9054 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		A1FD305F2A66AC8035447097 /* Resources */ = {isa = PBXResourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
@@ -1614,6 +1659,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		DA84ADB10621A3352C4B4AE1 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
+		872F994F0950B80D291BE670 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (7FD84756E08EB002E7743182, 4F6DB3DB11C7CD3F4DEABA94, FC30E24CE3030D853DBE8021, CA3A142548E3815891EDF0BD, F3CBDBB154CBF748234650C9, 2B8A35343391DEFF91A27E93, 9FC994DFF526CD80F6ADD01E, 6E2E9D49B4B0D3AECC54A6AA, 03E75F34AB241F6F9170E11F, 1FD0C04F753E547296F9A80B, 50C0A9FA057F646B3D7563A7, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -1970,6 +2016,46 @@
 			};
 			name = Release;
 		};
+		380C0E5BB9FA9DB122915860 /* Debug */ = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic;
+ DEVELOPMENT_TEAM = Z3LBQE3J8T;
+ PRODUCT_BUNDLE_IDENTIFIER = com.kridsdale.JellyfinPlayer.Parents;
+ PRODUCT_NAME = KidsJellyFinParents;
+ PRODUCT_MODULE_NAME = KidsParents;
+ INFOPLIST_FILE = KidsParents/Info.plist;
+ GENERATE_INFOPLIST_FILE = YES;
+ CURRENT_PROJECT_VERSION = 1;
+ MARKETING_VERSION = 0.1;
+ IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+ SDKROOT = iphoneos;
+ SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+ SUPPORTS_MACCATALYST = NO;
+ SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+ TARGETED_DEVICE_FAMILY = 1;
+ SWIFT_VERSION = 6.0;
+ SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+ LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+ ENABLE_PREVIEWS = YES;
+ SWIFT_OPTIMIZATION_LEVEL = "-Onone"; SWIFT_ACTIVE_COMPILATION_CONDITIONS = "DEBUG $(inherited)"; }; name = Debug; };
+		27579B7262FA16DBE264ABB4 /* Release */ = {isa = XCBuildConfiguration; buildSettings = { CODE_SIGN_STYLE = Automatic;
+ DEVELOPMENT_TEAM = Z3LBQE3J8T;
+ PRODUCT_BUNDLE_IDENTIFIER = com.kridsdale.JellyfinPlayer.Parents;
+ PRODUCT_NAME = KidsJellyFinParents;
+ PRODUCT_MODULE_NAME = KidsParents;
+ INFOPLIST_FILE = KidsParents/Info.plist;
+ GENERATE_INFOPLIST_FILE = YES;
+ CURRENT_PROJECT_VERSION = 1;
+ MARKETING_VERSION = 0.1;
+ IPHONEOS_DEPLOYMENT_TARGET = 18.6;
+ SDKROOT = iphoneos;
+ SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+ SUPPORTS_MACCATALYST = NO;
+ SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
+ TARGETED_DEVICE_FAMILY = 1;
+ SWIFT_VERSION = 6.0;
+ SWIFT_DEFAULT_ACTOR_ISOLATION = nonisolated;
+ LD_RUNPATH_SEARCH_PATHS = "$(inherited) @executable_path/Frameworks";
+ ENABLE_PREVIEWS = YES;
+  }; name = Release; };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -2010,6 +2096,7 @@
 			defaultConfigurationName = Release;
 		};
 		DA84A97DE7D00C9DBAD04AF1 /* Build configuration list for KidsNativeTests */ = {isa = XCConfigurationList; buildConfigurations = (DA842E4A623B8ABAC5EAB93F /* Debug */, DA84E383F699DF79F2B20A1F /* Release */, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
+		6EEAB68888E568C5A133DD7E /* Parents configurations */ = {isa = XCConfigurationList; buildConfigurations = (380C0E5BB9FA9DB122915860, 27579B7262FA16DBE264ABB4, ); defaultConfigurationIsVisible = 0; defaultConfigurationName = Release; };
 /* End XCConfigurationList section */
 
 /* Begin XCLocalSwiftPackageReference section */
@@ -2134,6 +2221,7 @@
 		64A5CA823973250C3F5A99E8 /* XCLocalSwiftPackageReference "Packages/SwiftfinMPV" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/SwiftfinMPV; };
 		C1299E2895E0D5D3B62BF4EC /* XCLocalSwiftPackageReference "Packages/SwiftfinImageProcessing" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/SwiftfinImageProcessing; };
 		66511D990DFD262233B90248 /* XCLocalSwiftPackageReference "Packages/SwiftfinPermissions" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/SwiftfinPermissions; };
+		7459C6FC4E2A5677FA1EAC15 /* XCLocalSwiftPackageReference "Packages/KidsParentControl" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/KidsParentControl; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -2955,6 +3043,7 @@
 		9FB1D70736E18D99CC796DC9 /* SwiftfinAccountStore */ = {isa = XCSwiftPackageProductDependency; package = DA8559318BE0E97308E68DB1 /* XCLocalSwiftPackageReference "Packages/SwiftfinAccountStore" */; productName = SwiftfinAccountStore; };
 		E232BDED1C5CD65386196349 /* SwiftfinSessions */ = {isa = XCSwiftPackageProductDependency; package = DA87EA2E6E1125F208E61607 /* XCLocalSwiftPackageReference "Packages/SwiftfinSessions" */; productName = SwiftfinSessions; };
 		345C6C911BDA247EC39B5AB0 /* SwiftfinAsyncStreams */ = {isa = XCSwiftPackageProductDependency; package = DA8973D15AA3CE8C53314E47 /* XCLocalSwiftPackageReference "Packages/SwiftfinAsyncStreams" */; productName = SwiftfinAsyncStreams; };
+		F63886682994110E9A050E59 /* KidsParentControl */ = {isa = XCSwiftPackageProductDependency; package = 7459C6FC4E2A5677FA1EAC15; productName = KidsParentControl; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5377CBE9263B596A003A4E83 /* Project object */;

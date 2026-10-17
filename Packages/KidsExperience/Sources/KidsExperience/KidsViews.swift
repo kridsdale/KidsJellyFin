@@ -55,6 +55,8 @@ public struct KidsRootView: View {
                         actionSymbol: "lock.fill",
                         action: { model.parentPresented = true }
                     )
+                } else if model.viewingHeld {
+                    KidsStatusView(symbol: "leaf", title: "Quiet time.", parentAction: { model.parentPresented = true })
                 } else if model.problem != nil && model.catalog.isEmpty {
                     KidsStatusView(
                         symbol: "wifi.slash",
@@ -67,7 +69,7 @@ public struct KidsRootView: View {
                 }
             }
             .navigationDestination(for: KidsItem.self) { item in
-                if !model.requiresParent, model.catalog.values.contains(where: { $0.contains(item) }) {
+                if !model.requiresParent, !model.viewingHeld, model.catalog.values.contains(where: { $0.contains(item) }) {
                     KidsTitleView(
                         model: model,
                         item: item
@@ -87,16 +89,25 @@ public struct KidsRootView: View {
         .tint(kidsTeal).preferredColorScheme(.dark).background(kidsBackground)
         .sheet(
             isPresented: Binding(get: { model.parentPresented && model.activePlayback == nil }, set: { model.parentPresented = $0 }),
-            onDismiss: { model.lockParents() }
+            onDismiss: { model.lockParents()
+                model.resumeViewingAfterParentSheet()
+            }
         ) { KidsParentView(model: model, playbackPresentation: playbackPresentation) }
         .fullScreenCover(item: Binding(get: { model.activePlayback }, set: { newValue in
             guard newValue == nil, let presented = model.activePlayback else { return }
             Task { await model.dismissPlayback(presented) }
-        })) { playback in KidsPlayerView(
-            model: model,
-            playback: playback,
-            playbackPresentation: playbackPresentation
-        ) }
+        })) { playback in
+            if model.ambientMode {
+                playbackPresentation.surface(for: playback).ignoresSafeArea().background(.black)
+                    .focusable().onExitCommand {}.onPlayPauseCommand {}.interactiveDismissDisabled()
+                    .overlay(alignment: .bottomTrailing) {
+                        Button("Parents", systemImage: "lock") { Task { await model.requestViewingParentAccess() } }
+                            .font(.caption).padding(24).opacity(0.3)
+                    }
+            } else {
+                KidsPlayerView(model: model, playback: playback, playbackPresentation: playbackPresentation)
+            }
+        }
         .sheet(isPresented: $model.sessionFinished) {
             VStack(spacing: 35) {
                 if let title = model.sessionEndItem {
@@ -122,15 +133,24 @@ public struct KidsRootView: View {
             await model.stopPlayback(endSession: false)
             await model.refresh()
         }
+        .task(id: model.viewingControlRevision) { await model.monitorViewingControls() }
         .onChange(of: scenePhase) {
             if scenePhase != .active {
                 model.background()
-            } else if model.activePlayback == nil {
-                Task { await model.refresh() }
+            } else {
+                model.foregroundViewingControls()
+                if model.activePlayback == nil {
+                    Task { await model.refresh() }
+                }
             }
         }
         .onChange(of: model.requiresParent) {
             if model.requiresParent {
+                path = []
+            }
+        }
+        .onChange(of: model.viewingHeld) {
+            if model.viewingHeld {
                 path = []
             }
         }

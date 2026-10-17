@@ -1,0 +1,339 @@
+# Parent controls: tvOS receiver integration
+
+Implementation record, 2026-10-17. This describes local client source and automated
+checks, not a deployed or commissioned parental-control system. The iPhone app and
+its backend request are documented in [parents-app.md](parents-app.md) and
+[parents-backend-handoff.md](parents-backend-handoff.md).
+
+## What changed
+
+The same Xcode project now has a native iPhone parent target and an opt-in tvOS
+receiver. The receiver connects parent policy to the existing kids catalog, queue,
+player lifecycle and PIN-protected settings. It never changes media files, library
+roots, Jellyfin account permissions or RAID configuration.
+
+| Responsibility | Owner |
+| --- | --- |
+| Parent/receiver JSON and scoped HTTP | KidsParentControl |
+| Pure lease, deadline, command and eligibility decisions | KidsViewingControl |
+| Receiver configuration host port | KidsAccounts |
+| Separate receiver Keychain entry | SwiftfinCredentials and tvOS account adapter |
+| Polling, local watchdog, playback/events and ambient lifecycle | KidsApplication |
+| Pairing settings, held screen and ambient presentation | KidsExperience |
+| Parent phone UI, authentication and capability-gated editors | KidsParents target |
+
+Unpaired installations preserve their previous behavior. Pairing alone also leaves
+enforcement off: an administrator must explicitly commission and activate it.
+
+## Credentials and activation
+
+The TV's existing parent PIN protects pairing/unpairing. Pairing requires a
+dedicated, scoped receiver token and the control-service URL. The displayed raw
+installation UUID must be used as-is by the provisioning service. Do not add a
+Jellyfin transport prefix or rewrite letter case. The token is separate from both
+the child's Jellyfin login and the phone's adult control credential.
+
+The current manager origin is `http://192.168.10.100:8097`; its hostname origin is
+rejected by the deployed service. New native routes are still backend source work.
+Do not attempt to provision by treating the existing manager as the future API.
+
+Activation requires a scoped policy response with explicit `enforcementEnabled:true`.
+The TV stores its activation marker before permitting enforced normal playback.
+After activation, a restart, unreadable secure configuration, network failure,
+unsupported response or stale lease cannot silently restore unrestricted playback.
+An authenticated `enforcementEnabled:false` plus correlated release may deactivate;
+an omitted field never deactivates. A grown-up can explicitly unpair using the PIN.
+Token replacement preserves the activation marker and any completed-control latch.
+
+Pairing is not evidence of commissioning. A never-activated heartbeat reports only
+reachability: revision 0, no playback session/item/position/command, zero elapsed.
+It does not mint a lease, debit time, create history or claim deadline readiness.
+Activated idle heartbeats use the latest policy revision with the same null/zero
+shape. While playing, heartbeat includes the actual controller/item/position but
+still zero elapsed and no command ID. After explicit deactivation, retain the latest
+disabled-policy revision and return to the null idle shape; a heartbeat never enables
+enforcement. An ambient heartbeat requires the server's acknowledged current ambient
+controller binding and never consumes kids allowance.
+
+## Viewing and playback
+
+Every normal playback entry obtains a serialized policy refresh before preparation.
+Eligibility is rechecked after metadata authorization and player preparation. Home
+catalog, episode lists, ordered advance, shuffle and remote skip all intersect
+the original Kid TV/Kid Movies binding with the current policy. Denied shows also
+deny their episodes; the designated ambient item is excluded from ordinary viewing.
+Generic Jellyfin remote PlayNow remains disabled.
+
+Leases last at most 30 seconds. The client subtracts the request's whole round trip
+from the usable duration and tracks expiry/deadline with a monotonic clock. A
+five-second foreground poll is separate from the one-second enforcement watchdog,
+so slow metadata/player preparation does not stop expiry enforcement. New playback
+joins an in-flight refresh rather than spending stale permission after a session ends.
+
+An activated TV starts held until fresh permission arrives. Missing usage reports
+remain a backend reservation/accounting concern, not an assumed refund. A full
+128-event queue causes a viewing hold. The queue is memory resident; a process crash
+can lose unacknowledged operational reports. The backend must preserve unconfirmed
+reservations, and history must not claim complete observation after a gap.
+Command processing stops before claiming more actions when the queue reaches120,
+leaving eight slots for stop/progress callbacks and acknowledgements. A burst cannot
+execute commands whose results would be dropped. Nonrecoverable structured event
+conflicts set a reporting fault, so the watchdog holds playback without waiting for
+the previous permission lease to expire.
+
+An explicit countdown/finish end persists its command latch, preventing a restart
+from resuming kids viewing before release. Ordinary lease/routine/budget holds may
+recover after fresh permission. Finish-episode applies to one exact controller UUID
+and natural EOF, bounded by the hard deadline. It cannot transfer to a later episode.
+
+Remote pause/resume/skip applies only to the captured playback UUID and expires
+within 30 seconds. The TV claims command IDs durably before execution in its own
+application-support directory. The bounded ledger contains only command/session IDs.
+It is separate from RAID media. Session changes cannot inherit earlier actions.
+
+## Quiet end and ambient playback
+
+At a hold, normal playback stops and the child sees a quiet screen. Ambient playback
+requires a correlated countdown/finish control that has reached its deadline or has
+its exact completed-control latch, plus the approved Jellyfin bird item. An item ID
+alone is not authority. Routine/budget/lease holds without that authority remain
+static and emit no ambient events. The client authorizes the bird item
+through the original catalog boundary and starts an isolated ambient controller.
+Episode ambient items require authorization of their series as well. Ambient playback
+does not update kids episode checkpoints, advance a kids queue or debit kids viewing.
+
+The ambient controller loops at natural EOF. Back/PlayPause cannot escape to kids
+content. Parents can open the existing protected settings. Preparation/decoder/network
+failures have a bounded retry budget and then leave the quiet static screen.
+No child YouTube search, live YouTube URL or uncontrolled autoplay is introduced.
+This stops viewing inside this app; it does not power off the TV or lock other apps.
+
+The design currently requires the bird item to belong to the original approved
+Jellyfin kids binding. A server-side ambient item outside that boundary cannot be
+used by this client without a separately reviewed authorization design.
+
+## Events, history and shuffle
+
+Receiver requests carry only the receiver bearer, with no Jellyfin admin token or
+identity override headers. Events encode exactly ten keys, retaining explicit nulls.
+Idempotency-Key is the original eventID. A receipt's misleadingly named commandID
+must equal that eventID; request.commandID separately correlates the parent action.
+Playback session ID is the controller UUID, not Jellyfin's transport play-session ID.
+Event encoding uses sorted keys so retrying the same immutable event preserves the
+actual request bytes. Server code reports that body/header UUID spelling must match
+exactly first; event and command UUIDs then normalize together, including correlated
+control IDs. Swift's uppercase UUID representation is expected. Installation/child/
+Jellyfin identity spelling remains unchanged. A joined backend transaction fixture
+for the uppercase native case is still pending.
+
+Receiver409 errors preserve their structured code. Only a no-usage heartbeat
+(elapsed0, commandIDnull, exact local scope) may be discarded on `lease_mismatch`,
+`lease_expired_or_mismatched`, `policy_revision_mismatch` or
+`heartbeat_session_mismatch`, followed by a fresh policy fetch. Usage/control/ambient
+reports are never discarded this way. Unknown errors, missing codes, idempotency/key
+conflicts, clock rollback and restore-review requirements remain fail closed.
+
+Reports retain their original policy revision. Operational progress excludes pauses,
+buffering, nonfinite positions, implausible jumps and delayed samples; residual
+progress is queued before ended/stopped. Activation during playback queues started
+before subsequent progress. This is operational observation, not physical frame or
+audio certification. AmbientStarted likewise means the supported player callback,
+not independently verified pictures or sound.
+Normal started/progress/paused/buffering/ended/stopped retain the controller's last
+actually granted viewing revision. A later DENY snapshot cannot replace that grant
+provenance; a subsequent allowed lease may advance it for that same controller.
+Already-queued events stay immutable. Heartbeat/control/ambient observations retain
+their separately captured current policy/delivery revision. Explicit deactivation
+ends enforced accounting under the old grant before the receiver transitions off,
+even if the underlying controller keeps playing in the parent-authorized unenforced
+state. The backend's retrospective acceptance remains a rollout dependency.
+
+Preferred shows move earlier on the home screen. Shuffle remains inside the chosen
+show, applies catalog restrictions before freshness, and may relax freshness only.
+Central watched/recent context is optional and now requires explicit
+`shuffleContext.complete:true` before applying history preferences. Missing/false
+cannot classify items as unwatched or fresh. Server shuffle capability must remain
+off until context completeness and cross-device semantics are tested.
+
+## Backend integration status
+
+Server chat: **Make YT Feature**, isolated backend branch `feature/parents-backend-v1`.
+The server agent supplied deterministic fixtures produced through its DB/auth/policy
+facade with synthetic metadata. Initial policy/budget/receipt examples are semantic
+JSON copies. The later enforcement fixture is now checked in verbatim at
+`Packages/KidsParentControl/Tests/KidsParentControlTests/Fixtures/enforcement.json`.
+Its raw SHA-256 was independently computed on this Mac and exactly matches the
+server's `6714d7ff91dd84d01cc7dab9ae0c0b83ce44ee898829b36cc29e0ecd45fe4839`.
+Executable tests decode enabled/disabled policy, correlate event/release receipts,
+and preserve 501 readiness denial and the bootstrap409 race. These tests are
+cross-language fixture compatibility evidence, not a live API result.
+
+The subsequent `Fixtures/heartbeats.json` also matches the server's exact raw
+6531-byte fixture and SHA-256
+`ca7767191250ccf977926fbac1d460d6462cb9c7ccd0d5895ded91983b9dfd9b`.
+Its four event vectors exercise all-null idle, normal playback, ambient start and
+ambient heartbeat field preservation, receipt correlation and deterministic re-send.
+Three rejection vectors preserve structured stale-session errors. Original lowercase
+event/control UUID fixture strings are compared as UUID identities after Swift's
+normal uppercase encoding; other fields remain identical. The backend's accounting
+snapshots are recorded provenance, not a locally executed database assertion.
+
+The 2,714-byte `Fixtures/fractional-seconds.json` independently matches SHA-256
+`4ff001d23b50f3945fe9f1b8b43afb576590ff1ad0bdcc910865f6ea0458c300`.
+Native tests preserve the 1.23-second progress payload and decode integer public
+budget values before/after lease expiry (`usedSeconds=1`, reserved29→0,
+unconfirmed0→29, authoritative remaining270 throughout). Its historical history-item
+vector is an explicit excerpt with its `id` removed; native code rejects it as an incomplete history
+DTO. The public DTO's stable identity requirement is unchanged.
+
+The exact successor `Fixtures/fractional-seconds-full-page.json` is 2,912 bytes and
+independently matches SHA-256
+`d632615282071b25bc5203accaff41c8845ff67c1f3294af2150bd4c0f38ef52`.
+It captures the actual history-page response with its server-issued deterministic
+history ID. A positive test through ParentControlAPI capability negotiation and
+the scoped history route verifies child scope, ID, fractional timestamp, integral
+watched duration and null page cursor. No client-side ID was fabricated, and the
+older excerpt remains rejected. This is fixture/source compatibility, not deployed
+service or household-history acceptance.
+
+The original 19-fixture bundle was reported with SHA-256
+`1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
+The later never-activated heartbeat fixture was reported with SHA-256
+`37c040fd5eb18819a973183f415c476bd531953eec0318a59ca8ba7cf6d79a10`.
+These are provenance supplied by the server agent, not independently recomputed
+hashes on this Mac.
+
+As of this record, the server confirmed these remaining compatibility gates:
+
+1. Validate activation/deactivation across the client and backend. The server now
+   reports source implementation of the adult-only enforcement route below, with
+   default-off readiness and five real-transaction tests. It is not commissioned
+   or deployed; trusted receiver evidence cannot be inferred from these tests.
+2. Validate the newly implemented idle command ACK/ambient-failure contract together
+   with the client. The server reports source support and 63 policy/wire/HTTP tests:
+   null session/item/position is accepted only with a concrete exact delivered control
+   command ID and zero elapsed. Remote-command ACKs cannot use this idle shape;
+   ambientStarted requires an actual controller session. This is not deployed.
+3. Accept queued reports against their original granted lease/delivery, including
+   previous revisions and failed-release redelivery. This remains a backend gate.
+   The client now preserves the confirmed last-granted-controller revision for final
+   reports after denial/deactivation; the server must accept that historical evidence
+   without minting permission, refunding uncertainty or reviving obsolete commands.
+4. Freeze complete watched/recent context and test shuffle across devices.
+5. Finish the startup/catalog adapter and runtime evidence gates, then deploy the
+   scoped APIs only after its independent cache-repair/deployment gates.
+
+The adult credential issue/list/revoke/show-once UI is reported implemented in
+backend `kids_cache/static/parent-control.html/.js/.css`, with a manager entry and
+offline DOM verification. It is not installed. Its served route is requested for
+native Settings onboarding. A usable per-device activation screen remains an
+explicit backend source task: current revision/status, gated enable/disable and
+uncertain-result handling must accompany the already-tested enforcement route.
+
+Joined transaction proof of uppercase native UUID correlation remains pending.
+The fractional playing sample's integral public budget/history output is now tested
+against exact backend fixtures. Public used/history seconds are confirmed
+floored; held/unconfirmed seconds are ceiled; authoritative remaining floors the
+full-precision calculation. Native models remain Int, but now refuse to reconstruct
+remaining permission from rounded display fields. Missing authoritative remaining
+shows unknown. The backend retains fractional internal accounting.
+
+Backend source now provides adult-cookie/Origin/CSRF
+`POST /api/parent-admin/v1/devices/{exactInstallationUUID}/enforcement` with
+`commandID`, `childUserID`, `expectedRevision`, `enabled` and a matching
+idempotency key. The separately default-off `receiver-enforcement-v1` gate controls
+this path. Enabling additionally requires independently injected trusted receiver
+evidence and a fresh authenticated heartbeat. `enforcementEnabled` is emitted only
+under that explicit gate. Disabling moves only that TV's held reservation to
+unconfirmed, preserves spend, emits correlated false+release and grants no viewing
+lease. Source tests cover disabled501, absent/stale readiness, CAS/idempotency/scope,
+disable/release ACK and the initial-heartbeat activation race.
+
+The server reports 87 joined tests passed and 141 distinct parent/legacy-web cases
+covered (140 initially passed, one Node case skipped then separately passed with
+bundled Node). Those are server-reported source checks, not locally rerun tests or
+cross-layer/runtime acceptance. The original 19 core fixtures remain unchanged.
+
+The client's idle control ACK/preparation-failure encoding supplies that all-null,
+zero-elapsed shape and the policy's command ID. Its ambientStarted callback supplies
+the controller UUID. The server subsequently froze this branch as control-correlated
+only. Client playback/events now require that exact due/completed authority; generic
+routine/budget/lease holds stay static. Changing/removing authority stops existing
+ambient playback, and async preparation/failure cannot be relabeled with a replacement
+control's ID. No generic hold-observation contract is implemented. Readiness stays off.
+
+The backend's current source defaults advertise only read-only health, review inbox
+and viewing history. Enforcement readiness remains off. No credentials were issued,
+receiver paired, policy activated, service deployed or family trial run by this work.
+
+## Verification
+
+Local checks on 2026-10-17:
+
+| Check | Result |
+| --- | --- |
+| KidsParentControl transport/feature/fixture tests | 42 passed |
+| KidsViewingControl pure policy tests | 16 passed |
+| KidsAccounts configuration contracts | 18 passed |
+| SwiftfinCredentials namespace contracts | 9 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 28 passed |
+| Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
+| Package ownership/import/dependency audit | Passed, 55 libraries |
+| Architecture-checker unit tests | 25 passed |
+| Evidence revision input/symlink tests | 2 passed |
+
+The application tests verify activated-without-lease denial, pairing-only behavior,
+foreign/unreadable secure configuration, PIN protection, preview write denial and
+existing identity/catalog/playback boundary cases. Added integration cases exercise
+durable activation/deactivation, failed secure-store writes, bootstrap409 recovery,
+byte-identical lost-receipt retries before policy refresh, single-flight concurrent
+refresh, actual controller heartbeat fields, progress409 retention and four allowed
+stale heartbeat errors versus six rejected integrity/unknown errors. A64-command
+burst with an existing queue backlog verifies every executed action retains its ACK
+and processing stops before overflow. Denial → final progress/stopped → release and
+explicit mid-playback deactivation verify last-grant provenance without relabeling
+queued reports. They use an
+injected transport and isolated temporary command ledger, and do not exercise real
+video or contact a server.
+The evidence revision input set now includes the receiver, policy, credential,
+account, TV experience and host-adapter sources so a build can be tied to this code.
+
+`KidsJellyFin tvOS` and `KidsJellyFin Parents` generic simulator builds both passed
+(arm64 and x86_64), with signing disabled. The subsequent control-only ambient
+update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
+28 selected application-boundary tests passed. The TV build's embedded
+`KidsEvidenceImplementationRevision` exactly matched the final source digest:
+`743860c6b6342bdfbc7b97273012517b49643c96461c27b7652f25f62fddb854`.
+The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
+App Intents metadata warning; it is not warning-free. No physical-device signing or
+installation is implied. `git diff --check` and project/parent plist syntax passed.
+
+Reproduce package checks with `xcrun swift test --build-system native
+--package-path Packages/<package> --disable-sandbox` for the four packages above.
+This checkout's default SwiftPM build engine stalled during SDK-stat-cache generation;
+the native engine completed. This is a tooling workaround, not a product change.
+
+The application boundary suite runs through the existing KidsValidation scheme:
+
+```sh
+xcodebuild -project KidsJellyFin.xcodeproj -scheme KidsValidation \
+  -destination 'platform=tvOS Simulator,id=C185BD69-BF46-4520-AC7E-8174AEA534E3' \
+  -only-testing:KidsUITests/KidsApplicationBoundaryTests \
+  -disableAutomaticPackageResolution -skipPackageUpdates -skipMacroValidation \
+  CODE_SIGNING_ALLOWED=NO test
+```
+
+Select an available simulator ID when reproducing on another Mac. These tests use
+synthetic hosts/controllers; they do not call a household service or play media.
+
+## Acceptance still required
+
+Use an explicitly authorized isolated test profile/device after the backend gaps
+are closed. Verify activation persistence, expiry while offline, TV/app/server
+restart, countdown replacement/release and EOF/deadline races; deny a show through
+every browse/queue/playback route; test budget reservations with concurrent TVs;
+observe ambient EOF/error/recovery, lock protection and parent delivery states.
+Exercise a reviewed YouTube import separately through the existing immutable
+snapshot workflow. Record actual playback evidence and unsupported observations.
+Only then promote each corresponding capability. Build success and persisted
+receipts cannot replace these runtime acceptance checks.

@@ -1,0 +1,633 @@
+//
+// Swiftfin is subject to the terms of the Mozilla Public
+// License, v2.0. If a copy of the MPL was not distributed with this
+// file, you can obtain one at https://mozilla.org/MPL/2.0/.
+//
+// Copyright (c) 2026 Jellyfin & Jellyfin Contributors
+//
+
+// SPDX-License-Identifier: MPL-2.0
+import Foundation
+import KidsAccounts
+import KidsCatalog
+import KidsDomain
+import KidsParentControl
+import KidsPlaybackSession
+import KidsViewingControl
+import UIKit
+
+@MainActor
+final class KidsViewingRuntime {
+    var configuration: KidsReceiverConfiguration
+    var lease: ViewingLease
+    let api: KidsReceiverAPI
+    var events: [ReceiverEvent] = []
+    var ambientSessionID: UUID?
+    var ambientControlID: UUID?
+    var ambientShowID: String?
+    var ambientAttempts = 0
+    var ambientStarting = false
+    var ambientTask: Task<Void, Never>?
+    var policyFlight: (id: UUID, task: Task<Void, Error>)?
+    var reportingFault = false
+    var lastFrame: (sessionID: UUID, position: Double, uptime: UInt64)?
+    var accumulatedPlaying = 0.0
+    var lastProgressNS: UInt64 = 0
+    var lastControlID: UUID?
+    var normalGrant: (sessionID: UUID, revision: Int)?
+    private var claimedSession: UUID?
+    private var claimed: Set<UUID> = []
+    private let ledgerURL: URL
+
+    init(
+        configuration: KidsReceiverConfiguration,
+        transport: any ParentHTTPTransport = ParentURLTransport(),
+        ledgerDirectory: URL? = nil
+    ) throws {
+        self.configuration = configuration
+        lease = ViewingLease(serverID: configuration.serverID, childUserID: configuration.childUserID, deviceID: configuration.deviceID)
+        api = try KidsReceiverAPI(
+            server: ParentServer(configuration.serviceURL.absoluteString),
+            serverID: configuration.serverID,
+            childUserID: configuration.childUserID,
+            deviceID: configuration.deviceID.uuidString,
+            token: configuration.token,
+            transport: transport
+        )
+        let directory = ledgerDirectory ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent(
+                "KidsPlayer/Receiver",
+                isDirectory: true
+            )
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        ledgerURL = directory.appendingPathComponent("\(configuration.deviceID.uuidString).json")
+    }
+
+    private struct Claims: Codable { let sessionID: UUID
+        let ids: Set<UUID>
+    }
+
+    /// Persist before executing. A new playback UUID cannot inherit old remote commands.
+    func claim(_ command: UUID, sessionID: UUID) throws -> Bool {
+        if claimedSession != sessionID {
+            if FileManager.default.fileExists(atPath: ledgerURL.path) {
+                let attributes = try FileManager.default.attributesOfItem(atPath: ledgerURL.path)
+                guard ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 1_000_000,
+                      attributes[.type] as? FileAttributeType == .typeRegular else { throw KidsContractError.denied }
+                let saved = try JSONDecoder().decode(Claims.self, from: Data(contentsOf: ledgerURL))
+                claimed = saved.sessionID == sessionID ? saved.ids : []
+            } else {
+                claimed = []
+            }
+            claimedSession = sessionID
+        }
+        guard !claimed.contains(command) else { return false }
+        guard claimed.count < 4096 else { throw KidsContractError.denied }
+        var next = claimed
+        next.insert(command)
+        let data = try JSONEncoder().encode(Claims(sessionID: sessionID, ids: next))
+        try data.write(to: ledgerURL, options: .atomic)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: ledgerURL.path)
+        let handle = try FileHandle(forWritingTo: ledgerURL)
+        try handle.synchronize()
+        try handle.close()
+        claimed = next
+        return true
+    }
+}
+
+extension KidsAppModel {
+    public var receiverInstallationID: String {
+        UIDevice.current.identifierForVendor?.uuidString ?? "Unavailable"
+    }
+
+    func resetViewingControlIdentity() {
+        viewingRuntime?.ambientTask?.cancel()
+        viewingRuntime = nil
+        rawCatalog = [:]
+        viewingHeld = false
+        ambientMode = false
+        viewingControlRevision = UUID()
+    }
+
+    func prepareViewingControls(binding: KidsBinding) throws {
+        let configuration: KidsReceiverConfiguration?
+        do { configuration = try accounts?.receiverConfiguration }
+        catch { viewingHeld = true
+            viewingControlStatus = "Parent-service credentials could not be read."
+            throw error
+        }
+        guard let configuration else {
+            if viewingRuntime != nil {
+                resetViewingControlIdentity()
+            }
+            return
+        }
+        guard configuration.serverID == binding.serverID, configuration.childUserID == binding.userID,
+              configuration.deviceID == UUID(uuidString: receiverInstallationID)
+        else {
+            viewingHeld = true
+            viewingControlStatus = "A grown-up must check this TV's parent-service pairing."
+            throw KidsContractError.denied
+        }
+        if viewingRuntime?.configuration != configuration {
+            viewingRuntime = try KidsViewingRuntime(configuration: configuration)
+            viewingHeld = configuration.activated
+            ambientMode = configuration.activated
+            viewingControlStatus = configuration.activated ? "Waiting for fresh viewing permission." : "Paired. Waiting for administrator activation."
+            viewingControlRevision = UUID()
+        }
+    }
+
+    public func pairViewingControls(serviceURL: String, token: String) throws {
+        guard unlocked, !isPreview, let accounts, let binding,
+              let deviceID = UUID(uuidString: receiverInstallationID) else { throw KidsContractError.denied }
+        let service = try ParentServer(serviceURL)
+        let secret = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !secret.isEmpty, secret.utf8.allSatisfy({ (33 ... 126).contains($0) }) else { throw KidsContractError.denied }
+        let previous = try accounts.receiverConfiguration
+        let configuration = KidsReceiverConfiguration(
+            serviceURL: service.url,
+            serverID: binding.serverID,
+            childUserID: binding.userID,
+            deviceID: deviceID,
+            token: secret,
+            activated: previous?.activated ?? false,
+            latchedControlID: previous?.latchedControlID
+        )
+        try accounts.storeReceiverConfiguration(configuration)
+        try prepareViewingControls(binding: binding)
+        touchGate()
+    }
+
+    public func unpairViewingControls() async throws {
+        guard unlocked, !isPreview, let accounts else { throw KidsContractError.denied }
+        try accounts.storeReceiverConfiguration(nil)
+        if ambientMode {
+            await stopPlayback(endSession: false)
+        }
+        resetViewingControlIdentity()
+        viewingControlStatus = "Parent service disconnected by a grown-up."
+        await refresh()
+    }
+
+    func permitsViewing(_ item: KidsItem, binding: KidsBinding) -> Bool {
+        guard !viewingHeld, !ambientMode else { return false }
+        guard let runtime = viewingRuntime, runtime.configuration.activated else { return KidsEligibility.permits(item, binding: binding) }
+        guard item.id != runtime.ambientShowID else { return false }
+        return runtime.lease.permits(item, binding: binding, at: DispatchTime.now().uptimeNanoseconds)
+    }
+
+    func rememberViewingGrant(_ controller: KidsPlaybackController) {
+        guard let runtime = viewingRuntime, runtime.configuration.activated,
+              runtime.ambientSessionID != controller.id, let binding,
+              runtime.lease.permits(controller.item, binding: binding, at: DispatchTime.now().uptimeNanoseconds),
+              let revision = runtime.lease.policy?.revision else { return }
+        runtime.normalGrant = (controller.id, revision)
+    }
+
+    func filteredForViewing(_ items: [KidsItem], binding: KidsBinding) -> [KidsItem] {
+        let permitted = items.filter { permitsViewing($0, binding: binding) }
+        guard let runtime = viewingRuntime, runtime.configuration.activated,
+              permitted.allSatisfy({ $0.kind == .series }) else { return permitted }
+        let preferred = Set(runtime.lease.policy?.shuffle.preferredShowIDs ?? [])
+        return permitted.enumerated().sorted { left, right in
+            let a = preferred.contains(left.element.id), b = preferred.contains(right.element.id)
+            return a == b ? left.offset < right.offset : a && !b
+        }.map(\.element)
+    }
+
+    func shuffleForViewing(_ items: [KidsItem], binding: KidsBinding) -> [KidsItem] {
+        guard let runtime = viewingRuntime, runtime.configuration.activated else { return items }
+        return runtime.lease.shuffleCandidates(items, binding: binding, at: DispatchTime.now().uptimeNanoseconds)
+    }
+
+    public func foregroundViewingControls() {
+        receiverForeground = true
+        if ambientMode, let controller = activePlayback, controller.driver.frame.paused {
+            controller.driver.togglePlayPause()
+        }
+    }
+
+    public func requestViewingParentAccess() async {
+        viewingRuntime?.ambientAttempts = 3
+        await stopPlayback(endSession: false)
+        parentPresented = true
+    }
+
+    public func resumeViewingAfterParentSheet() {
+        viewingRuntime?.ambientAttempts = 0
+    }
+
+    public func monitorViewingControls() async {
+        guard !isPreview, let runtime = viewingRuntime else { return }
+        defer {
+            runtime.ambientTask?.cancel()
+            runtime.ambientTask = nil
+            runtime.policyFlight?.task.cancel()
+            runtime.policyFlight = nil
+        }
+        await withTaskGroup(of: Void.self) { group in
+            group.addTask { await self.viewingPolicyLoop(runtime) }
+            group.addTask { await self.viewingTickLoop(runtime) }
+            await group.waitForAll()
+        }
+    }
+
+    private func viewingPolicyLoop(_ runtime: KidsViewingRuntime) async {
+        while !Task.isCancelled, viewingRuntime === runtime {
+            if receiverForeground {
+                do { try await synchronizeViewingPolicy(runtime) }
+                catch {
+                    guard viewingRuntime === runtime else { return }
+                    viewingControlStatus = runtime.configuration.activated ? "Waiting for fresh viewing permission." : "Paired; server activation is not ready."
+                }
+            }
+            do { try await Task.sleep(for: .seconds(5)) } catch { return }
+        }
+    }
+
+    func acquireViewingLease() async throws {
+        guard let runtime = viewingRuntime, runtime.configuration.activated else { return }
+        try await synchronizeViewingPolicy(runtime)
+        guard !Task.isCancelled, viewingRuntime === runtime, runtime.events.isEmpty,
+              !viewingHeld, !ambientMode, runtime.lease.allowsNormalViewing(at: DispatchTime.now().uptimeNanoseconds)
+        else { throw KidsContractError.denied }
+    }
+
+    func synchronizeViewingPolicy(_ runtime: KidsViewingRuntime) async throws {
+        if let flight = runtime.policyFlight {
+            try await flight.task.value
+            return
+        }
+        let id = UUID()
+        let task = Task { try await self.performViewingPolicyRefresh(runtime) }
+        runtime.policyFlight = (id, task)
+        defer {
+            if runtime.policyFlight?.id == id {
+                runtime.policyFlight = nil
+            }
+        }
+        try await task.value
+    }
+
+    private func performViewingPolicyRefresh(_ runtime: KidsViewingRuntime) async throws {
+        if runtime.events.isEmpty {
+            queueViewingEvent(.heartbeat, controller: runtime.configuration.activated ? activePlayback : nil)
+        }
+        for _ in 0 ..< 16 {
+            guard let event = runtime.events.first else { break }
+            do { try await runtime.api.send(event) }
+            catch let conflict as ReceiverEventConflict where conflict.allowsHeartbeatRefresh && event.kind == .heartbeat &&
+                event.elapsedPlayingSeconds == 0 && event.commandID == nil
+            {
+                // Only structured stale reachability can be dropped. Usage and
+                // integrity/idempotency conflicts remain queued and fail closed.
+            } catch let conflict as ReceiverEventConflict {
+                runtime.reportingFault = true
+                throw conflict
+            }
+            guard viewingRuntime === runtime, !Task.isCancelled else { return }
+            runtime.events.removeFirst()
+        }
+        if runtime.events.isEmpty {
+            runtime.reportingFault = false
+        }
+        let started = DispatchTime.now().uptimeNanoseconds
+        let policy = try await runtime.api.policy()
+        guard viewingRuntime === runtime, !Task.isCancelled, let binding,
+              binding.serverID == runtime.configuration.serverID,
+              binding.userID == runtime.configuration.childUserID else { return }
+        try runtime.lease.accept(policy, requestStartedNS: started, receivedNS: DispatchTime.now().uptimeNanoseconds)
+        let ambientBefore = ambientMode
+        try updateViewingActivation(runtime, policy: policy)
+        if ambientBefore, !ambientMode, activePlayback?.id == runtime.ambientSessionID {
+            await stopPlayback(endSession: false)
+            runtime.ambientSessionID = nil
+        }
+        if !runtime.configuration.activated, policy.enforcementEnabled == false, let control = policy.policyControl,
+           control.kind == .release, runtime.lastControlID != control.commandID
+        {
+            runtime.lastControlID = control.commandID
+            queueViewingEvent(.commandApplied, controller: activePlayback, commandID: control.commandID)
+            if activePlayback?.id == runtime.ambientSessionID {
+                await stopPlayback(endSession: false)
+                runtime.ambientSessionID = nil
+            }
+        }
+        if runtime.configuration.activated {
+            if let controller = activePlayback {
+                rememberViewingGrant(controller)
+            }
+            viewingHeld = ambientMode || !runtime.lease.allowsNormalViewing(at: DispatchTime.now().uptimeNanoseconds)
+            catalog = rawCatalog.mapValues { filteredForViewing($0, binding: binding) }
+            invalidateEpisodeMetadata()
+            viewingControlStatus = viewingHeld ? "Viewing is finished for now." : "Parent viewing rules are active."
+            await applyViewingCommands(runtime)
+        }
+    }
+
+    private func updateViewingActivation(_ runtime: KidsViewingRuntime, policy: ReceiverPolicy) throws {
+        let activate = ViewingLease.nextActivation(current: runtime.configuration.activated, policy: policy)
+        let old = runtime.configuration
+        let latch = policy.policyControl?.kind == .release ? nil : old.latchedControlID
+        if activate != old.activated || latch != old.latchedControlID {
+            let next = KidsReceiverConfiguration(
+                serviceURL: old.serviceURL,
+                serverID: old.serverID,
+                childUserID: old.childUserID,
+                deviceID: old.deviceID,
+                token: old.token,
+                activated: activate,
+                latchedControlID: latch
+            )
+            do { try accounts?.storeReceiverConfiguration(next) }
+            catch { viewingHeld = true
+                throw error
+            }
+            if old.activated, !activate, let controller = activePlayback, runtime.ambientSessionID != controller.id {
+                // End enforced accounting under the old grant even when explicit
+                // deactivation permits this controller to keep playing normally.
+                flushViewingProgress(controller)
+                queueViewingEvent(.stopped, controller: controller)
+            }
+            runtime.configuration = next
+            if activate, !old.activated, let controller = activePlayback, let binding,
+               runtime.lease.permits(controller.item, binding: binding, at: DispatchTime.now().uptimeNanoseconds)
+            {
+                rememberViewingGrant(controller)
+                queueViewingEvent(.started, controller: controller)
+            }
+        }
+        if !activate {
+            ambientMode = false
+            viewingHeld = false
+            if let binding {
+                catalog = rawCatalog.mapValues { filteredForViewing($0, binding: binding) }
+            }
+        } else if latch == nil, runtime.lease.allowsNormalViewing(at: DispatchTime.now().uptimeNanoseconds) {
+            ambientMode = false
+            viewingHeld = false
+        }
+    }
+
+    private func viewingTickLoop(_ runtime: KidsViewingRuntime) async {
+        while !Task.isCancelled, viewingRuntime === runtime {
+            if runtime.configuration.activated, receiverForeground {
+                let now = DispatchTime.now().uptimeNanoseconds
+                if !runtime.lease.allowsNormalViewing(at: now) || runtime.reportingFault {
+                    await enterViewingHold(latchControl: runtime.lease.deadlineReached(at: now))
+                } else if let controller = activePlayback, runtime.ambientSessionID != controller.id,
+                          let binding, !runtime.lease.permits(controller.item, binding: binding, at: now)
+                {
+                    await stopPlayback()
+                }
+                sampleViewingProgress(runtime, at: now)
+                let ambientAuthority = runtime.lease.ambientCommandID(latchedControlID: runtime.configuration.latchedControlID, at: now)
+                if let controller = activePlayback, controller.id == runtime.ambientSessionID,
+                   ambientAuthority == nil || ambientAuthority != runtime.ambientControlID || controller.item.id != runtime.lease.policy?
+                       .birdItemID
+                {
+                    await stopPlayback(endSession: false)
+                }
+                if ambientMode, ambientAuthority != nil, activePlayback == nil, !runtime.ambientStarting, runtime.ambientAttempts < 3 {
+                    // Authorization/preparation may be slow; the lease watchdog remains independent.
+                    runtime.ambientStarting = true
+                    runtime.ambientTask = Task { await self.startViewingAmbient(runtime)
+                        runtime.ambientStarting = false
+                    }
+                }
+            }
+            do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+    }
+
+    func enterViewingHold(latchControl: Bool = false) async {
+        guard let runtime = viewingRuntime, runtime.configuration.activated else { return }
+        if latchControl, let id = runtime.lease.policy?.policyControl?.commandID, runtime.configuration.latchedControlID != id {
+            let old = runtime.configuration
+            let next = KidsReceiverConfiguration(
+                serviceURL: old.serviceURL,
+                serverID: old.serverID,
+                childUserID: old.childUserID,
+                deviceID: old.deviceID,
+                token: old.token,
+                activated: true,
+                latchedControlID: id
+            )
+            do { try accounts?.storeReceiverConfiguration(next)
+                runtime.configuration = next
+            } catch { runtime.reportingFault = true }
+        }
+        let entering = !ambientMode
+        viewingHeld = true
+        ambientMode = true
+        sessionFinished = false
+        selectedShow = nil
+        selectedMovie = nil
+        if let playback = activePlayback, playback.id != runtime.ambientSessionID {
+            await stopPlayback(endSession: false)
+        } else if entering, activePlayback == nil {
+            cancelPendingStart()
+        }
+    }
+
+    func queueViewingEvent(
+        _ kind: ReceiverEvent.Kind,
+        controller: KidsPlaybackController? = nil,
+        elapsed: Double = 0,
+        commandID: UUID? = nil
+    ) {
+        guard let runtime = viewingRuntime else { return }
+        let releaseAck = kind == .commandApplied && runtime.lease.policy?.enforcementEnabled == false &&
+            runtime.lease.policy?.policyControl?.kind == .release && commandID == runtime.lease.policy?.policyControl?.commandID
+        guard runtime.configuration.activated || kind == .heartbeat || releaseAck else { return }
+        let ambientEvent = kind == .ambientStarted || kind == .ambientFailed
+        let ambientAuthority = runtime.lease.ambientCommandID(
+            latchedControlID: runtime.configuration.latchedControlID,
+            at: DispatchTime.now().uptimeNanoseconds
+        )
+        if ambientEvent {
+            guard ambientMode, let ambientAuthority,
+                  commandID == nil || commandID == ambientAuthority else { return }
+            if let controller {
+                guard controller.id == runtime.ambientSessionID, runtime.ambientControlID == ambientAuthority,
+                      controller.item.id == runtime.lease.policy?.birdItemID else { return }
+            }
+        }
+        if let controller, !isCurrentPlayback(controller) {
+            // Skip acknowledgements refer to the controller just retired by that
+            // captured command. Ordinary late playback callbacks never cross accounts.
+            guard kind == .commandApplied || kind == .commandFailed, commandID != nil,
+                  let binding, runtime.configuration.serverID == binding.serverID,
+                  runtime.configuration.childUserID == binding.userID,
+                  KidsEligibility.permits(controller.item, binding: binding) else { return }
+        }
+        guard runtime.events.count < 128 else { runtime.reportingFault = true
+            return
+        }
+        let control = commandID ?? (ambientEvent ? ambientAuthority : nil)
+        let revision: Int
+        switch kind {
+        case .started, .progress, .paused, .buffering, .ended, .stopped:
+            guard let controller, let grant = runtime.normalGrant, grant.sessionID == controller.id else {
+                runtime.reportingFault = true
+                return
+            }
+            revision = grant.revision
+        default: revision = runtime.lease.policy?.revision ?? 0
+        }
+        runtime.events.append(ReceiverEvent(
+            deviceID: runtime.lease.policy?.deviceID ?? runtime.configuration.deviceID.uuidString,
+            childUserID: runtime.configuration.childUserID,
+            policyRevision: revision,
+            playbackSessionID: controller?.id.uuidString,
+            itemID: controller?.item.id,
+            kind: kind,
+            positionSeconds: controller.map { max(0, $0.seconds.isFinite ? $0.seconds : 0) },
+            elapsedPlayingSeconds: elapsed,
+            commandID: control
+        ))
+    }
+
+    private func sampleViewingProgress(_ runtime: KidsViewingRuntime, at now: UInt64) {
+        guard let controller = activePlayback, controller.id != runtime.ambientSessionID else { runtime.lastFrame = nil
+            return
+        }
+        let frame = controller.driver.frame
+        if let previous = runtime.lastFrame, previous.sessionID == controller.id, now >= previous.uptime {
+            runtime.accumulatedPlaying += ViewingLease.playingInterval(
+                previousPosition: previous.position,
+                position: frame.seconds,
+                elapsedSeconds: Double(now - previous.uptime) / 1_000_000_000,
+                playing: frame.playing,
+                paused: frame.paused,
+                buffering: frame.buffering || frame.preparing
+            )
+        } else {
+            runtime.accumulatedPlaying = 0
+        }
+        runtime.lastFrame = (controller.id, frame.seconds, now)
+        if now >= runtime.lastProgressNS, now - runtime.lastProgressNS >= 5_000_000_000 {
+            queueViewingEvent(.progress, controller: controller, elapsed: min(5, runtime.accumulatedPlaying))
+            runtime.accumulatedPlaying = 0
+            runtime.lastProgressNS = now
+        }
+    }
+
+    func flushViewingProgress(_ controller: KidsPlaybackController) {
+        guard let runtime = viewingRuntime, runtime.configuration.activated, runtime.ambientSessionID != controller.id else { return }
+        sampleViewingProgress(runtime, at: DispatchTime.now().uptimeNanoseconds)
+        if runtime.accumulatedPlaying > 0 {
+            queueViewingEvent(.progress, controller: controller, elapsed: min(5, runtime.accumulatedPlaying))
+            runtime.accumulatedPlaying = 0
+        }
+    }
+
+    private func applyViewingCommands(_ runtime: KidsViewingRuntime) async {
+        guard let policy = runtime.lease.policy else { return }
+        // Leave room for stop/progress callbacks and the acknowledgement before
+        // claiming an action. A backlog must not execute unreportable commands.
+        guard runtime.events.count < 120 else { runtime.reportingFault = true
+            return
+        }
+        if let control = policy.policyControl, control.commandID != runtime.lastControlID {
+            runtime.lastControlID = control.commandID
+            runtime.ambientAttempts = 0
+            queueViewingEvent(.commandApplied, controller: activePlayback, commandID: control.commandID)
+            if control.kind == .release, let playback = activePlayback, playback.id == runtime.ambientSessionID {
+                await stopPlayback(endSession: false)
+                runtime.ambientSessionID = nil
+            }
+        }
+        for command in policy.commands {
+            guard runtime.events.count < 120 else { runtime.reportingFault = true
+                return
+            }
+            guard let controller = activePlayback, let binding, runtime.ambientSessionID != controller.id,
+                  runtime.lease.mayApply(command, playbackSessionID: controller.id.uuidString, at: DispatchTime.now().uptimeNanoseconds),
+                  permitsViewing(controller.item, binding: binding) else { continue }
+            do {
+                guard try runtime.claim(command.commandID, sessionID: controller.id) else { continue }
+                switch command.action {
+                case .pause: controller.driver.pause()
+                case .resume: if controller.driver.frame.paused {
+                        controller.driver.togglePlayPause()
+                    }
+                case .skip:
+                    let eligible = filteredForViewing(controller.episodes, binding: binding)
+                    let next: KidsItem? = if controller
+                        .mode == .shuffle
+                    {
+                        shuffleForViewing(eligible, binding: binding).first { $0.id != controller.item.id }
+                    } else if let index = eligible.firstIndex(where: { $0.id == controller.item.id }),
+                              eligible.indices.contains(index + 1)
+                    {
+                        eligible[index + 1]
+                    } else {
+                        nil
+                    }
+                    await stopPlayback(endSession: false)
+                    guard viewingRuntime === runtime else { return }
+                    if let next {
+                        beginPlayback(controller.title, mode: controller.mode, explicitEpisode: next, continuing: true)
+                    }
+                }
+                queueViewingEvent(.commandApplied, controller: controller, commandID: command.commandID)
+            } catch { queueViewingEvent(.commandFailed, controller: controller, commandID: command.commandID) }
+        }
+    }
+
+    private func startViewingAmbient(_ runtime: KidsViewingRuntime) async {
+        guard viewingRuntime === runtime, ambientMode, activePlayback == nil, let birdID = runtime.lease.policy?.birdItemID,
+              let controlID = runtime.lease.ambientCommandID(
+                  latchedControlID: runtime.configuration.latchedControlID,
+                  at: DispatchTime.now().uptimeNanoseconds
+              ),
+              let api, let binding, let playbackFactory else { return }
+        runtime.ambientAttempts += 1
+        let identity = accounts?.currentIdentity
+        let generation = startGeneration
+        do {
+            let item: KidsItem
+            do { item = try await api.authorize(itemID: birdID, expectedKind: .episode, binding: binding) }
+            catch KidsContractError.denied { item = try await api.authorize(itemID: birdID, expectedKind: .movie, binding: binding) }
+            let title: KidsItem
+            if item.kind == .episode {
+                guard let showID = item.seriesID else { throw KidsContractError.denied }
+                title = try await api.authorize(itemID: showID, expectedKind: .series, binding: binding)
+                runtime.ambientShowID = showID
+            } else {
+                title = item
+            }
+            let controller = try await playbackFactory.prepare(
+                item: item,
+                title: title,
+                mode: item.kind == .episode ? .once : .movie,
+                position: 0,
+                episodes: [],
+                delegate: self,
+                performance: nil,
+                simulateStreamFailure: false
+            )
+            guard !Task.isCancelled, viewingRuntime === runtime, ambientMode, activePlayback == nil, self.binding == binding,
+                  accounts?.currentIdentity == identity, startGeneration == generation,
+                  runtime.lease.policy?.birdItemID == birdID,
+                  runtime.lease.ambientCommandID(
+                      latchedControlID: runtime.configuration.latchedControlID,
+                      at: DispatchTime.now().uptimeNanoseconds
+                  ) == controlID
+            else { await controller.stop()
+                return
+            }
+            controller.allowsCheckpoints = false
+            runtime.ambientSessionID = controller.id
+            runtime.ambientControlID = controlID
+            activePlayback = controller
+            controller.start()
+        } catch {
+            guard !Task.isCancelled, viewingRuntime === runtime, runtime.lease.policy?.birdItemID == birdID else { return }
+            queueViewingEvent(.ambientFailed, commandID: controlID)
+        }
+    }
+}
