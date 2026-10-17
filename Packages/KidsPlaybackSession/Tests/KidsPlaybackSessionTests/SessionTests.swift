@@ -24,6 +24,7 @@ private final class Driver: KidsPlaybackDriver {
     var reports = 0
     var pauses = 0
     var stops = 0
+    var toggles = 0
     var stopWait: (@MainActor () async -> Void)?
     var seeks: [Double] = []
     func start() {
@@ -35,7 +36,10 @@ private final class Driver: KidsPlaybackDriver {
         reports += 1
     }
 
-    func togglePlayPause() {}
+    func togglePlayPause() {
+        toggles += 1
+    }
+
     func pause() {
         pauses += 1
     }
@@ -126,6 +130,38 @@ func `reports begin only after decoded output beyond durable resume`() async {
     f.driver.advance(121)
     #expect(f.delegate.began == 1)
     #expect(f.driver.reports == 1)
+    await f.session.stop()
+}
+
+@Test @MainActor
+func `host resume admission does not change paused transport before approval`() async {
+    let f = Fixture()
+    f.driver.frame.paused = true
+    var requests: [UUID] = []
+    f.session.onResumeRequested = { requests.append($0.id) }
+    f.session.toggle()
+    #expect(requests == [f.session.id])
+    #expect(f.driver.toggles == 0)
+    #expect(f.driver.frame.paused)
+    #expect(f.delegate.began == 0)
+    await f.session.stop()
+    f.session.toggle()
+    #expect(requests == [f.session.id])
+    #expect(f.driver.toggles == 0)
+}
+
+@Test @MainActor
+func `resume admission preserves unconfigured transport and ordinary pause requests`() async {
+    let f = Fixture()
+    f.driver.frame.paused = true
+    f.session.toggle()
+    #expect(f.driver.toggles == 1)
+    var admissionRequests = 0
+    f.session.onResumeRequested = { _ in admissionRequests += 1 }
+    f.driver.frame.paused = false
+    f.session.toggle()
+    #expect(f.driver.toggles == 2)
+    #expect(admissionRequests == 0)
     await f.session.stop()
 }
 

@@ -51,6 +51,11 @@ public struct ReceiverPolicy: Codable, Equatable, Sendable {
     public let deviceID: String
     public let revision: Int
     public let enforcementEnabled: Bool?
+    public let playbackIntentRequired: Bool?
+    public let playbackIntentAvailable: Bool?
+    public let playbackIntentID: UUID?
+    public let leasePlaybackSessionID: String?
+    public let leaseItemID: String?
     public let serverTime: Date
     public let validUntil: Date
     public let viewingAllowed: Bool
@@ -190,6 +195,68 @@ public struct KidsReceiverAPI: Sendable {
               UUID(uuidString: deviceID) != nil, policy.deviceID == deviceID
         else { throw ParentControlError.serverMismatch }
         return policy
+    }
+
+    /// Persists an admission request, never a playback grant. Fetch and validate
+    /// fresh exact-session policy after this receipt before starting transport.
+    @discardableResult
+    public func requestPlaybackIntent(
+        commandID: UUID,
+        expectedRevision: Int,
+        playbackSessionID: String,
+        itemID: String
+    ) async throws -> ParentCommandReceipt {
+        struct Body: Encodable {
+            let commandID: UUID
+            let deviceID: String
+            let childUserID: String
+            let expectedRevision: Int
+            let playbackSessionID: String
+            let itemID: String
+        }
+        guard expectedRevision >= 0 else { throw ParentControlError.invalidSelection }
+        return try await sendPlaybackMutation("playback-intents", commandID: commandID, body: Body(
+            commandID: commandID, deviceID: deviceID, childUserID: childUserID,
+            expectedRevision: expectedRevision,
+            playbackSessionID: ParentHTTP.identifier(playbackSessionID), itemID: ParentHTTP.identifier(itemID)
+        ))
+    }
+
+    /// Local transport must already be held and its prior evidence drained.
+    /// Persisting surrender does not confirm a refund or grant future permission.
+    @discardableResult
+    public func surrenderPlayback(
+        commandID: UUID,
+        playbackIntentID: UUID,
+        playbackSessionID: String,
+        itemID: String
+    ) async throws -> ParentCommandReceipt {
+        struct Body: Encodable {
+            let commandID: UUID
+            let playbackIntentID: UUID
+            let deviceID: String
+            let childUserID: String
+            let playbackSessionID: String
+            let itemID: String
+        }
+        return try await sendPlaybackMutation("playback-surrenders", commandID: commandID, body: Body(
+            commandID: commandID, playbackIntentID: playbackIntentID, deviceID: deviceID, childUserID: childUserID,
+            playbackSessionID: ParentHTTP.identifier(playbackSessionID), itemID: ParentHTTP.identifier(itemID)
+        ))
+    }
+
+    private func sendPlaybackMutation(_ path: String, commandID: UUID, body: some Encodable) async throws -> ParentCommandReceipt {
+        guard UUID(uuidString: deviceID) != nil else { throw ParentControlError.invalidSelection }
+        var headers = headers
+        headers["Idempotency-Key"] = commandID.uuidString
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let receipt: ParentCommandReceipt = try await http.request(
+            "api/kids/v1/\(path)", method: "POST", headers: headers,
+            body: encoder.encode(body)
+        )
+        guard receipt.commandID == commandID, receipt.status == "persisted" else { throw ParentControlError.malformedResponse }
+        return receipt
     }
 
     @discardableResult

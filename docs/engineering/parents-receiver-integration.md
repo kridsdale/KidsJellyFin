@@ -86,9 +86,40 @@ spendable viewing time. Actual playback must obtain a bounded reservation; offli
 unknown intervals must not be refunded merely from missing reports/idle heartbeat.
 Preparation can expose the actual controller/item before activePlayback assignment
 and driver.start, providing a possible scoped admission seam. Resume, automatic
-buffer recovery and surrender need consistent authority handling too. No endpoint,
-query/header change or quota-refund workaround is frozen or implemented yet.
-Keep daily-budget readiness off pending a transaction fixture and native tests.
+buffer recovery and surrender need consistent authority handling too. Keep
+daily-budget readiness off pending frozen transaction fixtures and native lifecycle
+integration. Unknown past allowance cannot be refunded as an idle-polling workaround.
+
+The current proposed `playback-grants-v1` wire adapter is implemented and unit-tested
+but is not called by the receiver runtime. Policy DTOs add optional
+`playbackIntentRequired`, `playbackIntentAvailable`, `playbackIntentID`,
+`leasePlaybackSessionID` and `leaseItemID`. Browse availability is not viewing
+permission. Intent POST uses exactly commandID/deviceID/childUserID/expectedRevision/
+playbackSessionID/itemID; surrender POST uses exactly commandID/deviceID/childUserID/
+playbackIntentID/playbackSessionID/itemID. Surrender deliberately omits revision:
+the persisted intent generation identifies revocation across auto-renewals.
+Both use scoped receiver bearer, the exact matching command idempotency key and
+deterministic retry bytes. Only the ordinary correlated persisted receipt is
+accepted; it grants no permission. A fresh policy must still bind the exact intent,
+controller, item and usable lease before frames.
+
+Auto-renewal retains one intent generation. Explicit resume creates a new intent
+even for the same controller; delayed surrender must not revoke that newer
+generation. The player library now offers a neutral optional onResumeRequested
+callback, tested to leave paused transport unchanged until the host acts. It has
+no HTTP/account dependencies and remains unconfigured. Full preparation/resume/
+buffer-readiness/surrender sequencing, sticky required-mode validation and backend
+capacity/retirement proof remain unfinished. This plumbing alone does not fix the
+daily-budget gap or establish capability readiness.
+
+The accepted accounting refinement distinguishes unknown past from future capacity:
+at verified surrender time on the server, only unused future capacity attributable
+to that exact intent may be released, bounded by its original expiry and remaining
+held/attributable uncertainty. Past unknown time and confirmed usage remain charged.
+Expired/unknown-period/unproven reservations release no future capacity; clock,
+restore and integrity guards remain mandatory. A reported5s, server-elapsed7s,
+30-second grant should retain used5/pastUnknown2 while releasing future23, rather
+than consuming30 seconds on each confirmed pause. Server transaction proof is pending.
 
 An activated TV starts held until fresh permission arrives. Missing usage reports
 remain a backend reservation/accounting concern, not an assumed refund. A full
@@ -391,11 +422,12 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 51 passed |
+| KidsParentControl transport/feature/fixture tests | 55 passed |
 | KidsViewingControl pure policy tests | 16 passed |
 | KidsAccounts configuration contracts | 18 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
 | KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 37 passed |
+| KidsPlaybackSession lifecycle/passive observations/neutral resume admission | 21 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
 | Architecture-checker unit tests | 25 passed |
@@ -418,8 +450,9 @@ The evidence revision input set now includes the receiver, policy, credential,
 account, TV experience and host-adapter sources so a build can be tied to this code.
 
 `KidsJellyFin tvOS` and `KidsJellyFin Parents` generic simulator builds both passed
-(arm64 and x86_64), with signing disabled. The iPhone target's optimized Release
-simulator configuration also passed after the receipt update; no device signing,
+(arm64 and x86_64), with signing disabled. The iPhone target's Debug and optimized
+Release simulator configurations also passed after the optional admission adapter
+update; no device signing,
 archive export, upload or physical installation follows from that result.
 The subsequent control-only ambient
 update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
@@ -433,11 +466,10 @@ malformed reset receipt retention/reporting fault, and full recovery drainage ac
 three bounded send batches without an intermediate policy GET.
 The TV build's embedded
 `KidsEvidenceImplementationRevision` exactly matched the final source digest:
-`29d356fcd559cc2c8061b1dff108f10670ecbaacd46fb6d4a5cd24cfa07c6241`.
-The first test build's stamp preceded SwiftFormat's final wrapping change; the
-subsequent generic TV build passed with the final formatted digest and exact
-embedded-value comparison. The37-test pass compiled those formatted sources;
-the rebuild updates source identity rather than claiming another runtime trial.
+`c5df846301f00da5fbbd8710d1ba24f0fb45fed712469d9c52aae25a936843ca`.
+The latest37-test pass compiled the optional admission DTO/HTTP adapter and neutral
+resume callback with both still unwired. Its embedded value matches the formatted
+source exactly; it establishes source identity rather than a budget-admission trial.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

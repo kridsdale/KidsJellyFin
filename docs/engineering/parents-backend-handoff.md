@@ -470,3 +470,40 @@ the supplied SHA-256 exactly and passes native API replay; the backend reports17
 distinct joined tests with no skips. Exact proof/hash and trace are in the receiver
 integration document. Source tests do not establish installed capability or
 household acceptance.
+
+### Playback grants — agreed source draft, lifecycle integration unfinished
+
+The idle-polling budget defect blocks daily-budget commissioning. Under separately
+default-off `playback-grants-v1`, policy GET is read-only when no current grant is
+valid. It must not reserve time merely because foreground browsing is allowed.
+Policy adds `playbackIntentRequired`, `playbackIntentAvailable`, `playbackIntentID`,
+`leasePlaybackSessionID`, and `leaseItemID`. Availability permits requesting intent;
+only fresh, finite, exact intent/controller/item permission permits transport.
+
+Intent POST `/api/kids/v1/playback-intents` has exactly commandID/deviceID/childUserID/
+expectedRevision/playbackSessionID/itemID. Use the actual prepared controller before
+driver.start. The matching idempotency receipt is persistence only. Fetch current
+policy afterward, including after an exact retry; a cached receipt cannot extend an
+expired grant. GET may renew an observed playing controller while allowed, never
+idle/prepared/long-paused by itself.
+
+Surrender POST `/api/kids/v1/playback-surrenders` has exactly commandID/deviceID/
+childUserID/playbackIntentID/playbackSessionID/itemID, deliberately no policyRevision.
+Locally hold/pause first, flush prior actual evidence in FIFO order, then surrender.
+Auto-renewals retain the intent ID. Explicit resume gets a new intent even for the
+same controller, so an old surrender cannot revoke a resumed generation. Pending
+evidence/surrender resolves before new intent. Neither receipt grants playback.
+
+Only future capacity attributable to that intent can be released, using accepted
+server time and original expiry, bounded by still-held/attributable uncertainty.
+Past uncertainty and confirmed usage remain charged. Already-expired/unknown-period/
+unproven provenance releases zero; reset boundaries clamp grants and existing clock/
+restore/integrity guards remain. Server transaction fixtures are still pending.
+
+The native DTO/HTTP foundation has55 protocol tests passing and its neutral optional
+resume callback has21 session tests passing. These helpers are UNWIRED. Preparation,
+paused/held controller retention, UI/remote resume, safe buffer-readiness admission,
+sticky required-mode validation and quota retirement need complete runtime wiring
+and tests after the transaction contract freezes. Native intent/surrender receipts
+must use receiver capacity, preserving the separate adult-control reserve. No
+configured feature, trusted-readiness record, deployed policy or family account changed.

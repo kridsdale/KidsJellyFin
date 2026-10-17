@@ -24,6 +24,10 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
     public var performance: KidsPerformanceSpan?
     /// Opt-in supplementary observations. This does not certify native output or a successful trial.
     public var onPassiveObservation: (@MainActor (KidsSessionObservation) -> Void)?
+    /// Optional host admission for paused-to-playing requests. The host must
+    /// revalidate this controller/account after any suspension before resuming.
+    /// Merely requesting admission never changes native transport state.
+    public var onResumeRequested: (@MainActor (KidsPlaybackController) -> Void)?
     @Published
     public var controlsVisible = false
     @Published
@@ -324,6 +328,8 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
         guard !stopped else { return }
         if model?.isPreview == true {
             paused.toggle()
+        } else if driver.frame.paused, let onResumeRequested {
+            onResumeRequested(self)
         } else {
             driver.togglePlayPause()
         }

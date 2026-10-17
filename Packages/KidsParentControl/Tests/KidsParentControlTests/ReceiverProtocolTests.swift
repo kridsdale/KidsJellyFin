@@ -12,13 +12,21 @@ import Testing
 
 private actor ReceiverTransport: ParentHTTPTransport {
     var requests: [URLRequest] = []
-    let response: String
+    var responses: [String]
     init(_ response: String) {
-        self.response = response
+        responses = [response]
+    }
+
+    init(responses: [String]) {
+        self.responses = responses
     }
 
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         requests.append(request)
+        let response = try #require(responses.first)
+        if responses.count > 1 {
+            responses.removeFirst()
+        }
         return (Data(response.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
     }
 }
@@ -165,6 +173,141 @@ func `invalid device or numbers never leave receiver`() async throws {
         ReceiverEvent(deviceID: receiverID, childUserID: "kid", policyRevision: 0, kind: .progress, elapsedPlayingSeconds: 31)
     ] {
         await #expect(throws: ParentControlError.invalidSelection) { try await api.send(event) }
+    }
+    #expect(await transport.requests.isEmpty)
+}
+
+@Test
+func `intent and surrender requests retain exact scope revision and immutable retry bytes`() async throws {
+    let id = UUID(), surrenderID = UUID()
+    let intentReceipt = "{\"commandID\":\"\(id)\",\"status\":\"persisted\"}"
+    let surrenderReceipt = "{\"commandID\":\"\(surrenderID)\",\"status\":\"persisted\"}"
+    let transport = ReceiverTransport(responses: [intentReceipt, intentReceipt, surrenderReceipt, surrenderReceipt])
+    let api = try receiverAPI(transport)
+    for _ in 0 ..< 2 {
+        try await api.requestPlaybackIntent(commandID: id, expectedRevision: 4, playbackSessionID: "prepared-controller", itemID: "episode")
+    }
+    let intentID = UUID()
+    for _ in 0 ..< 2 {
+        try await api.surrenderPlayback(
+            commandID: surrenderID,
+            playbackIntentID: intentID,
+            playbackSessionID: "prepared-controller",
+            itemID: "episode"
+        )
+    }
+    let requests = await transport.requests
+    #expect(requests.count == 4)
+    #expect(requests[0].httpBody == requests[1].httpBody)
+    #expect(requests[2].httpBody == requests[3].httpBody)
+    #expect(requests[0].url?.path == "/api/kids/v1/playback-intents")
+    #expect(requests[2].url?.path == "/api/kids/v1/playback-surrenders")
+    for (index, request) in requests.enumerated() {
+        #expect(request.httpMethod == "POST")
+        #expect(request.url?.query == nil)
+        let requestID = index >= 2 ? surrenderID : id
+        #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == requestID.uuidString)
+        #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer receiver-only")
+        #expect(request.value(forHTTPHeaderField: "X-Emby-Token") == nil)
+        let body = try #require(request.httpBody)
+        let decoded = try JSONSerialization.jsonObject(with: body)
+        let object = try #require(decoded as? [String: Any])
+        let keys = ["commandID", "deviceID", "childUserID", "playbackSessionID", "itemID"] +
+            [index >= 2 ? "playbackIntentID" : "expectedRevision"]
+        #expect(Set(object.keys) == Set(keys))
+        if index >= 2 {
+            #expect(object["playbackIntentID"] as? String == intentID.uuidString)
+        }
+        #expect(object["commandID"] as? String == requestID.uuidString)
+        #expect(object["deviceID"] as? String == receiverID)
+        #expect(object["childUserID"] as? String == "kid")
+        #expect(object["playbackSessionID"] as? String == "prepared-controller")
+        #expect(object["itemID"] as? String == "episode")
+        if index < 2 {
+            #expect(object["expectedRevision"] as? Int == 4)
+        }
+    }
+}
+
+@Test
+func `playback mutations reject unrelated or nonpersisted receipts`() async throws {
+    let requested = UUID()
+    for receipt in [
+        "{\"commandID\":\"\(UUID())\",\"status\":\"persisted\"}",
+        "{\"commandID\":\"\(requested)\",\"status\":\"applied\"}",
+        "{\"commandID\":\"\(requested)\",\"status\":\"failed\"}"
+    ] {
+        let api = try receiverAPI(ReceiverTransport(receipt))
+        await #expect(throws: ParentControlError.malformedResponse) {
+            try await api.requestPlaybackIntent(
+                commandID: requested,
+                expectedRevision: 1,
+                playbackSessionID: "controller",
+                itemID: "episode"
+            )
+        }
+        await #expect(throws: ParentControlError.malformedResponse) {
+            try await api.surrenderPlayback(
+                commandID: requested,
+                playbackIntentID: UUID(),
+                playbackSessionID: "controller",
+                itemID: "episode"
+            )
+        }
+    }
+}
+
+@Test
+func `playback intent policy distinguishes browse availability from exact bound permission`() async throws {
+    let intentID = UUID()
+    let base = """
+    {"serverID":"family","childUserID":"kid","deviceID":"\(receiverID)","revision":4,
+    "serverTime":"2026-10-17T12:00:00.000Z","validUntil":"2026-10-17T12:00:30.000Z",
+    "viewingAllowed":true,"blockedShowIDs":[],"blockedEpisodeIDs":[],
+    "shuffle":{"preferUnwatched":false,"repeatCooldownDays":0,"preferredShowIDs":[]},"commands":[],
+    "playbackIntentRequired":true,"playbackIntentAvailable":true,"playbackIntentID":"\(intentID)",
+    "leasePlaybackSessionID":"Prepared-Controller","leaseItemID":"approved-episode"}
+    """
+    let granted = try await receiverAPI(ReceiverTransport(base)).policy()
+    #expect(granted.playbackIntentRequired == true)
+    #expect(granted.playbackIntentAvailable == true)
+    #expect(granted.playbackIntentID == intentID)
+    #expect(granted.leasePlaybackSessionID == "Prepared-Controller")
+    #expect(granted.leaseItemID == "approved-episode")
+    let decoded = try JSONSerialization.jsonObject(with: Data(base.utf8))
+    var browse = try #require(decoded as? [String: Any])
+    browse["viewingAllowed"] = false
+    browse["validUntil"] = browse["serverTime"]
+    for key in ["playbackIntentID", "leasePlaybackSessionID", "leaseItemID"] {
+        browse[key] = NSNull()
+    }
+    let data = try JSONSerialization.data(withJSONObject: browse)
+    let json = try #require(String(data: data, encoding: .utf8))
+    let idle = try await receiverAPI(ReceiverTransport(json)).policy()
+    #expect(idle.playbackIntentAvailable == true)
+    #expect(!idle.viewingAllowed)
+    #expect(idle.validUntil == idle.serverTime)
+    #expect(idle.playbackIntentID == nil && idle.leasePlaybackSessionID == nil && idle.leaseItemID == nil)
+}
+
+@Test
+func `invalid playback selection or revision cannot send intent or surrender`() async throws {
+    let transport = ReceiverTransport("{}")
+    let api = try receiverAPI(transport)
+    for (revision, session, item) in [(-1, "controller", "item"), (0, "", "item"), (0, "controller", "../item")] {
+        await #expect(throws: ParentControlError.invalidSelection) {
+            try await api.requestPlaybackIntent(commandID: UUID(), expectedRevision: revision, playbackSessionID: session, itemID: item)
+        }
+        if revision >= 0 {
+            await #expect(throws: ParentControlError.invalidSelection) {
+                try await api.surrenderPlayback(
+                    commandID: UUID(),
+                    playbackIntentID: UUID(),
+                    playbackSessionID: session,
+                    itemID: item
+                )
+            }
+        }
     }
     #expect(await transport.requests.isEmpty)
 }
