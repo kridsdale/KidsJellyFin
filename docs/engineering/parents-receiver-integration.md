@@ -272,6 +272,14 @@ show/time/budget permission; removed or unverified catalog items still fail revi
 The gate requires this capability in independently verified receiver evidence before
 granting policy under the configured extension. It remains off and uncommissioned.
 
+Server checkpoint `4fd4269fe0ef60990b7030873ac10272942cd8c4` contains that gated
+reset/capacity source. Its successor cherry-pick
+`99af7381e0bd7f524b3240f6ada2679f8689d3a7` integrates deployed repair `9070055`;
+the server reports byte-identical pipeline/publication/storage runtime files and202
+focused source tests passing under RAID denial. Combined Parents/cache validation,
+complete shuffle context, installed catalog/startup adapters and deployment remain
+separate gates. This repair integration is not a live service change.
+
 The original 19-fixture bundle was reported with SHA-256
 `1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
 The later never-activated heartbeat fixture was reported with SHA-256
@@ -386,7 +394,10 @@ The evidence revision input set now includes the receiver, policy, credential,
 account, TV experience and host-adapter sources so a build can be tied to this code.
 
 `KidsJellyFin tvOS` and `KidsJellyFin Parents` generic simulator builds both passed
-(arm64 and x86_64), with signing disabled. The subsequent control-only ambient
+(arm64 and x86_64), with signing disabled. The iPhone target's optimized Release
+simulator configuration also passed after the receipt update; no device signing,
+archive export, upload or physical installation follows from that result.
+The subsequent control-only ambient
 update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
 36 selected application-boundary tests passed after the reporting lifecycle/recovery update.
 New cases cover no-start preparation/heartbeat/stop suppression, actual driver
