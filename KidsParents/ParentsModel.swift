@@ -196,9 +196,7 @@ final class ParentsModel {
                 token: secret,
                 transport: self.transport
             )
-            let capabilities = try await api.connect()
             try await self.loadControls(api)
-            self.capabilities = capabilities
             self.controls = api
             try await self.loadProfileState(api)
             guard epoch == self.generation, !self.locked else {
@@ -222,8 +220,11 @@ final class ParentsModel {
 
     func loadControls(_ api: ParentControlAPI) async throws {
         let epoch = generation
+        let capabilities = try await api.connect()
+        guard epoch == generation, !locked else { throw ParentActivityInterrupted() }
         let state = try await api.dashboard()
         guard epoch == generation, !locked else { throw ParentActivityInterrupted() }
+        self.capabilities = capabilities
         dashboard = state
         if !state.televisions.contains(where: { $0.id == selectedTV }) {
             selectedTV = state.televisions.first?.id ?? ""

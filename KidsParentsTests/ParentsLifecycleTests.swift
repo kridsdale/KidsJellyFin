@@ -61,6 +61,14 @@ private actor SyntheticTransport: ParentHTTPTransport {
     let suspension: Suspension
     let suspendedPath: String?
     var paths: [String] = []
+    var features: [String] = []
+    var capabilityStatus = 200
+
+    func setCapabilities(_ features: [String], status: Int = 200) {
+        self.features = features
+        capabilityStatus = status
+    }
+
     init(suspension: Suspension = Suspension(), suspendedPath: String? = nil) {
         self.suspension = suspension
         self.suspendedPath = suspendedPath
@@ -81,7 +89,9 @@ private actor SyntheticTransport: ParentHTTPTransport {
         case "/Sessions": json = "[]"
         case "/UserViews": json = #"{"Items":[],"TotalRecordCount":0}"#
         case "/Sessions/Logout": json = ""
-        case "/api/parent/v1/capabilities": json = #"{"version":1,"serverID":"family","features":[]}"#
+        case "/api/parent/v1/capabilities":
+            let data = try JSONSerialization.data(withJSONObject: ["version": 1, "serverID": "family", "features": features])
+            return try (data, #require(HTTPURLResponse(url: url, statusCode: capabilityStatus, httpVersion: nil, headerFields: nil)))
         case "/api/parent/v1/dashboard": json = #"{"serverID":"family","children":[],"televisions":[],"birdVideos":[],"shows":[]}"#
         default: throw ParentControlError.malformedResponse
         }
@@ -197,6 +207,8 @@ struct ParentsLifecycleTests {
         #expect(model.controlToken.isEmpty)
         #expect(try storage.read("parentService", as: ParentServiceConnection.self) == nil)
         #expect(storage.writes == 1) // Only the synthetic initial adult credential.
+        let paths = await transport.paths
+        #expect(!paths.contains("/api/parent/v1/dashboard"))
     }
 
     @Test
@@ -227,5 +239,50 @@ struct ParentsLifecycleTests {
         await model.perform { throw CancellationError() }
         #expect(model.needsRefresh)
         #expect(model.error != nil)
+    }
+
+    @Test
+    func `refresh and polling discover enabled and revoked server capabilities`() async throws {
+        let storage = MemoryCredentials(), transport = SyntheticTransport()
+        try storage.write(credential(), account: "jellyfin")
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-parent-token"
+        await model.connectControls()
+        #expect(model.controls != nil && !model.canChangeShows)
+        await transport.setCapabilities(["show-availability-v1"])
+        await model.refresh()
+        #expect(model.canChangeShows)
+        #expect(!model.needsRefresh && model.error == nil)
+        await transport.setCapabilities([])
+        await model.pollControls()
+        #expect(!model.canChangeShows)
+        #expect(model.capabilities?.features == [])
+        let paths = await transport.paths
+        #expect(paths.filter { $0 == "/api/parent/v1/capabilities" }.count == 3)
+        #expect(paths.filter { $0 == "/api/parent/v1/dashboard" }.count == 3)
+    }
+
+    @Test
+    func `failed capability refresh blocks writes until a fresh negotiation succeeds`() async throws {
+        let storage = MemoryCredentials(), transport = SyntheticTransport()
+        try storage.write(credential(), account: "jellyfin")
+        await transport.setCapabilities(["show-availability-v1"])
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-parent-token"
+        await model.connectControls()
+        #expect(model.canChangeShows)
+        await transport.setCapabilities([], status: 503)
+        await model.pollControls()
+        #expect(model.needsRefresh && !model.canChangeShows)
+        let beforeRecovery = await transport.paths
+        #expect(beforeRecovery.filter { $0 == "/api/parent/v1/dashboard" }.count == 1)
+        await transport.setCapabilities([])
+        await model.pollControls()
+        #expect(!model.needsRefresh && !model.canChangeShows)
+        #expect(model.capabilities?.features == [])
     }
 }

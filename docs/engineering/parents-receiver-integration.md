@@ -556,7 +556,7 @@ Local checks on 2026-10-17:
 | KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 50 passed |
 | KidsPlaybackSession lifecycle/passive observations/neutral resume admission | 21 passed |
 | VLCPlaybackOwnershipTests, fake native engine on tvOS Simulator | 21 passed |
-| Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
+| Parent iPhone model lifecycle, actual sources in isolated macOS harness | 9 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
 | Architecture-checker unit tests | 25 passed |
 | Evidence revision input/symlink tests | 2 passed |

@@ -45,10 +45,8 @@ extension ParentsModel {
               let saved = try credentialStore.read("parentService", as: ParentServiceConnection.self),
               saved.serverID == credential.serverID, saved.adultUserID == credential.userID else { return }
         let api = ParentControlAPI(server: saved.server, serverID: saved.serverID, token: saved.token, transport: transport)
-        let available = try await api.connect()
-        capabilities = available
-        controls = api
         try await loadControls(api)
+        controls = api
         try await loadProfileState(api)
         controlStatus = "Parent service connected."
     }

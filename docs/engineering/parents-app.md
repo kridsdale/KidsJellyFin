@@ -35,10 +35,16 @@ Each write retains the captured resource revision. Editors do not silently repla
 their revision with a newer background-refresh revision. Unknown write outcomes block
 new changes until fresh state arrives. Child changes clear previously loaded child
 data, pages reject duplicate records/repeating cursors, and replies verify account
-and series scope. Five-second foreground polling reads policy/command state only;
+and series scope. Five-second foreground polling reads capabilities/policy/command state only;
 it does not execute playback or automatically retry writes. Parent-service credentials
 are stored in the app's separate Keychain namespace and restored only for the same
 Jellyfin server and adult user after device unlock.
+
+Capability negotiation is refreshed with the dashboard on connection, explicit
+Refresh and foreground polling. The phone therefore discovers newly commissioned
+features and server-side revocation without requiring re-pairing. A failed
+negotiation blocks further changes until a fresh response succeeds, and a reply
+arriving after backgrounding cannot publish capabilities or fetch the dashboard.
 
 Read-only inbox entries launch the existing authenticated manager for exact immutable
 snapshot review; they never auto-approve a playlist. Operational viewing reports are
@@ -411,6 +417,13 @@ unit-test and compile results. Never run them against family playback implicitly
   no clipping was visible. No manager page or network action was opened.
 
 ### Receiver integration — 2026-10-17
+
+The parent model's actual-source macOS harness now passes9 lifecycle tests,
+including feature enablement after connection, revocation during polling and
+failed capability negotiation retaining the write hold. These use fake transport
+and credential storage; they do not establish live commissioning or device unlock.
+The iPhone Debug and optimized Release simulator builds passed after this change,
+with signing disabled. No physical installation or service change was performed.
 
 The tvOS target now contains the explicitly paired receiver, pure policy library,
 separate Keychain configuration, playback/catalog gates and ambient fallback.
