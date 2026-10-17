@@ -70,6 +70,26 @@ five-second foreground poll is separate from the one-second enforcement watchdog
 so slow metadata/player preparation does not stop expiry enforcement. New playback
 joins an in-flight refresh rather than spending stale permission after a session ends.
 
+### Open daily-budget contract: idle polling and playback intent
+
+Source audit confirmed that the root receiver monitor polls foreground policy every
+five seconds on home/browse, during preparation, and while paused/buffering, not only
+during operational playback. Backgrounding suspends it. The backend agent identified
+that its generic policy GET currently allocates a30-second held budget whenever
+global viewing is allowed. Together these source behaviors can reserve allowance
+without actual viewing and repeatedly age unknown reservations into unconfirmed.
+This is not a reported live incident: Parents/daily-budget enforcement is uninstalled.
+
+Daily-budget commissioning therefore additionally requires a separately gated,
+explicit playback-intent/surrender contract. Browse authorization must not reserve
+spendable viewing time. Actual playback must obtain a bounded reservation; offline
+unknown intervals must not be refunded merely from missing reports/idle heartbeat.
+Preparation can expose the actual controller/item before activePlayback assignment
+and driver.start, providing a possible scoped admission seam. Resume, automatic
+buffer recovery and surrender need consistent authority handling too. No endpoint,
+query/header change or quota-refund workaround is frozen or implemented yet.
+Keep daily-budget readiness off pending a transaction fixture and native tests.
+
 An activated TV starts held until fresh permission arrives. Missing usage reports
 remain a backend reservation/accounting concern, not an assumed refund. A full
 128-event queue causes a viewing hold. The queue is memory resident; a process crash
