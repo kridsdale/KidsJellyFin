@@ -774,6 +774,54 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         XCTAssertFalse(runtime.events.contains { $0.kind == .started })
     }
 
+    func testUnconfirmedBacklogDrainsAcrossBatchesBeforeFreshPolicy() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [
+            policyJSON(model, enabled: true, revision: 2, commandID: UUID()),
+            policyJSON(model, enabled: true, revision: 4, commandID: UUID())
+        ])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        model.playbackBegan(playback)
+        for _ in 0 ..< 31 {
+            model.queueViewingEvent(.progress, controller: playback, elapsed: 1)
+        }
+        let original = runtime.events.filter { $0.kind == .started || $0.kind == .progress }
+        for event in original {
+            await transport.markUnconfirmed(event)
+        }
+        for _ in 0 ..< 2 {
+            try await model.synchronizeViewingPolicy(runtime)
+            XCTAssertTrue(runtime.drainingUnconfirmedEvidence)
+            XCTAssertTrue(model.viewingHeld)
+            XCTAssertNil(model.activePlayback)
+            XCTAssertFalse(runtime.events.isEmpty)
+            XCTAssertEqual(runtime.lease.policy?.revision, 2)
+            let requests = await transport.requests
+            XCTAssertEqual(requests.filter { $0.httpMethod == "GET" }.count, 1)
+        }
+        try await model.synchronizeViewingPolicy(runtime)
+        XCTAssertFalse(runtime.drainingUnconfirmedEvidence)
+        XCTAssertFalse(model.viewingHeld)
+        XCTAssertNil(model.activePlayback)
+        XCTAssertEqual(runtime.lease.policy?.revision, 4)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.filter { $0.httpMethod == "GET" }.count, 2)
+        let sent = try requests.compactMap { request in
+            try request.httpBody.map { try JSONDecoder().decode(ReceiverEvent.self, from: $0) }
+        }
+        let originalIDs = Set(original.map(\.eventID))
+        XCTAssertEqual(sent.filter { originalIDs.contains($0.eventID) }, original)
+        XCTAssertEqual(sent.last?.kind, .stopped)
+        XCTAssertEqual(sent.last?.policyRevision, 2)
+        XCTAssertEqual(requests.last?.httpMethod, "GET")
+    }
+
     func testUnconfirmedOldControllerReceiptCannotStopItsReplacement() async throws {
         let (model, _, configuration, directory) = try receiverHarness(activated: true)
         let first = controller(

@@ -412,7 +412,7 @@ and policy admission.
 Backend checkpoint `8890ead` reports162 distinct joined tests with no skips in a
 RAID-denied loopback sandbox. Exact `historical-usage.json` and `late-ack.json`
 fixtures, independently hashed on the peer, are recorded in the receiver integration
-document. The peer has51 protocol tests and36 actual-source application boundary
+document. The peer has51 protocol tests and37 actual-source application boundary
 tests passing with injected transports and fake playback drivers. This is source
 compatibility, not deployment or runtime readiness.
 

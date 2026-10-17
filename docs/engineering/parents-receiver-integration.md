@@ -252,7 +252,10 @@ reporting-fault hold, just as an integrity conflict does.
 
 On a valid receipt the receiver holds and stops only the matching active controller,
 retains/drains immutable queued reports and the real stop under their original
-grant, then fetches fresh policy. A late receipt cannot stop a replacement controller.
+grant, then fetches fresh policy. The16-event send batch remains bounded across
+polls, but an unconfirmed backlog must drain completely before that GET. A backlog
+spanning several batches cannot briefly restore permission midway. A late receipt
+cannot stop a replacement controller.
 There is no automatic replay or manufactured start. The normal user Play entry may
 create a genuinely new controller/start after fresh permission. Installed
 gate/readiness and observed runtime acceptance are still required.
@@ -276,9 +279,10 @@ Server checkpoint `4fd4269fe0ef60990b7030873ac10272942cd8c4` contains that gated
 reset/capacity source. Its successor cherry-pick
 `99af7381e0bd7f524b3240f6ada2679f8689d3a7` integrates deployed repair `9070055`;
 the server reports byte-identical pipeline/publication/storage runtime files and202
-focused source tests passing under RAID denial. Combined Parents/cache validation,
-complete shuffle context, installed catalog/startup adapters and deployment remain
-separate gates. This repair integration is not a live service change.
+focused source tests passing under RAID denial. Its subsequent combined Parents/cache
+run passed379 distinct tests with no skips. Complete shuffle context, installed
+catalog/startup adapters and deployment remain separate gates. This repair integration
+is not a live service change.
 
 The original 19-fixture bundle was reported with SHA-256
 `1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
@@ -371,7 +375,7 @@ Local checks on 2026-10-17:
 | KidsViewingControl pure policy tests | 16 passed |
 | KidsAccounts configuration contracts | 18 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 36 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 37 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
 | Architecture-checker unit tests | 25 passed |
@@ -399,16 +403,21 @@ simulator configuration also passed after the receipt update; no device signing,
 archive export, upload or physical installation follows from that result.
 The subsequent control-only ambient
 update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
-36 selected application-boundary tests passed after the reporting lifecycle/recovery update.
+37 selected application-boundary tests passed after the reporting lifecycle/recovery update.
 New cases cover no-start preparation/heartbeat/stop suppression, actual driver
 readiness before usage, zero-elapsed transport transitions, residual old-grant
 flush before renewal, stopping a legacy controller on activation-storage failure,
 byte-identical late-ACK outage recovery before fetching/acknowledging release,
 unconfirmed-start retirement before fresh policy, replacement-session protection,
-and malformed reset receipt retention/reporting fault.
+malformed reset receipt retention/reporting fault, and full recovery drainage across
+three bounded send batches without an intermediate policy GET.
 The TV build's embedded
 `KidsEvidenceImplementationRevision` exactly matched the final source digest:
-`a310b303f2c6bb6909993fea233b096f0f912f61d46f84529004efa112f31dfa`.
+`29d356fcd559cc2c8061b1dff108f10670ecbaacd46fb6d4a5cd24cfa07c6241`.
+The first test build's stamp preceded SwiftFormat's final wrapping change; the
+subsequent generic TV build passed with the final formatted digest and exact
+embedded-value comparison. The37-test pass compiled those formatted sources;
+the rebuild updates source identity rather than claiming another runtime trial.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

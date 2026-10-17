@@ -30,6 +30,7 @@ final class KidsViewingRuntime {
     var ambientTask: Task<Void, Never>?
     var policyFlight: (id: UUID, task: Task<Void, Error>)?
     var reportingFault = false
+    var drainingUnconfirmedEvidence = false
     var lastFrame: (sessionID: UUID, position: Double, uptime: UInt64)?
     var accumulatedPlaying = 0.0
     var lastProgressNS: UInt64 = 0
@@ -300,6 +301,9 @@ extension KidsAppModel {
                 throw ParentControlError.malformedResponse
             }
             guard viewingRuntime === runtime, !Task.isCancelled else { return }
+            if unconfirmedSession != nil {
+                runtime.drainingUnconfirmedEvidence = true
+            }
             if let unconfirmedSession, let controller = activePlayback,
                controller.id.uuidString == unconfirmedSession, runtime.ambientSessionID != controller.id
             {
@@ -313,8 +317,14 @@ extension KidsAppModel {
             }
             runtime.events.removeFirst()
         }
+        // Keep the per-refresh send batch bounded, but never fetch a new grant
+        // midway through retiring an unconfirmed controller's old evidence.
+        if runtime.drainingUnconfirmedEvidence, !runtime.events.isEmpty {
+            return
+        }
         if runtime.events.isEmpty {
             runtime.reportingFault = false
+            runtime.drainingUnconfirmedEvidence = false
         }
         let started = DispatchTime.now().uptimeNanoseconds
         let policy = try await runtime.api.policy()
