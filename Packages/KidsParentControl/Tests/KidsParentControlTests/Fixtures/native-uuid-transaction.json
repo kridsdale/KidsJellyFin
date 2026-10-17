@@ -1,0 +1,131 @@
+{
+  "bootstrap-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": null,
+    "deviceID": "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF",
+    "elapsedPlayingSeconds": 0,
+    "eventID": "ABCDEFAB-0000-4000-8000-000000000322",
+    "itemID": null,
+    "kind": "heartbeat",
+    "playbackSessionID": null,
+    "policyRevision": 0,
+    "positionSeconds": null
+  },
+  "bootstrap-response": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000000322",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "deviceID": "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF",
+  "durable-controls": {
+    "command-status": "applied",
+    "event-receipt-ids": [
+      "abcdefab-0000-4000-8000-000000000322",
+      "abcdefab-0000-4000-8000-000000000324"
+    ],
+    "exact-device-ids": [
+      "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF"
+    ],
+    "history-count": 0,
+    "used-seconds": 0.0
+  },
+  "enable-response": {
+    "body": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": "abcdefab-0000-4000-8000-000000000323",
+      "deviceID": "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF",
+      "enforcementEnabled": true,
+      "revision": 1,
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "exact-byte-retry": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000000322",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "header-body-case-mismatch": {
+    "body": {
+      "error": "idempotency_key_mismatch",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 422
+  },
+  "issued-scope": {
+    "childUserIDs": [
+      "10000000-0000-4000-8000-000000000003"
+    ],
+    "deviceIDs": [
+      "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF"
+    ],
+    "role": "receiver",
+    "secretShown": true
+  },
+  "lowercase-installation-alias-denied": {
+    "body": {
+      "error": "scope_denied",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 403
+  },
+  "policy-response": {
+    "body": {
+      "birdItemID": null,
+      "blockedEpisodeIDs": [],
+      "blockedShowIDs": [],
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commands": [],
+      "deadline": null,
+      "deviceID": "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF",
+      "enforcementEnabled": true,
+      "finishPlaybackSessionID": null,
+      "policyControl": {
+        "commandID": "abcdefab-0000-4000-8000-000000000323",
+        "kind": "release"
+      },
+      "revision": 2,
+      "serverID": "10000000-0000-4000-8000-000000000001",
+      "serverTime": "2026-10-17T12:00:00.000Z",
+      "shuffle": {
+        "preferUnwatched": false,
+        "preferredShowIDs": [],
+        "repeatCooldownDays": 0
+      },
+      "validUntil": "2026-10-17T12:00:30.000Z",
+      "viewingAllowed": true
+    },
+    "httpStatus": 200
+  },
+  "same-id-changed-payload": {
+    "body": {
+      "error": "idempotency_conflict",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 409
+  },
+  "scope": "synthetic-source-only-not-runtime-readiness",
+  "uppercase-control-ACK-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "ABCDEFAB-0000-4000-8000-000000000323",
+    "deviceID": "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF",
+    "elapsedPlayingSeconds": 0,
+    "eventID": "ABCDEFAB-0000-4000-8000-000000000324",
+    "itemID": null,
+    "kind": "commandApplied",
+    "playbackSessionID": null,
+    "policyRevision": 2,
+    "positionSeconds": null
+  },
+  "uppercase-control-ACK-response": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000000324",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  }
+}

@@ -1,0 +1,162 @@
+{
+  "accounting-after": {
+    "historyWatchedSeconds": 0.0,
+    "reservedSeconds": 30.0,
+    "revision": 5,
+    "unconfirmedSeconds": 30.0,
+    "usedSeconds": 0.0
+  },
+  "accounting-before": {
+    "historyWatchedSeconds": 0.0,
+    "reservedSeconds": 30.0,
+    "revision": 5,
+    "unconfirmedSeconds": 30.0,
+    "usedSeconds": 0.0
+  },
+  "delivered-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [
+      {
+        "action": "pause",
+        "commandID": "abcdefab-0000-4000-8000-000000000582",
+        "expiresAt": "2026-10-17T12:00:30.000Z",
+        "playbackSessionID": "observed-controller"
+      }
+    ],
+    "deadline": "2026-10-17T12:05:00.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "revision": 3,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:30.000Z",
+    "viewingAllowed": true
+  },
+  "expired-ACK": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": "abcdefab-0000-4000-8000-000000000582",
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-000000000584",
+      "itemID": "10000000-0000-4000-8000-000000000006",
+      "kind": "commandApplied",
+      "playbackSessionID": "observed-controller",
+      "policyRevision": 3,
+      "positionSeconds": 0
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-000000000584",
+      "status": "persisted"
+    }
+  },
+  "fresh-release-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:01.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-000000000583",
+      "kind": "release"
+    },
+    "revision": 5,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:31.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:01:01.000Z",
+    "viewingAllowed": true
+  },
+  "inert-evidence": {
+    "canonicalBodySha256": "073d0fa17e221680ba11ccff75ca1fb3b4a62b834cc7322017bd4098ba356179",
+    "classification": "remote_expired",
+    "policyRevision": 3
+  },
+  "new-release-policy": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:01.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "policyControl": {
+      "commandID": "abcdefab-0000-4000-8000-000000000583",
+      "kind": "release"
+    },
+    "revision": 5,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:31.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:01:01.000Z",
+    "viewingAllowed": true
+  },
+  "old-command-receipt": {
+    "commandID": "abcdefab-0000-4000-8000-000000000582",
+    "errorCode": "command_expired",
+    "status": "failed"
+  },
+  "original-allow": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:00.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "revision": 2,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:30.000Z",
+    "viewingAllowed": true
+  },
+  "release-ACK": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": "abcdefab-0000-4000-8000-000000000583",
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-000000000585",
+      "itemID": null,
+      "kind": "commandApplied",
+      "playbackSessionID": null,
+      "policyRevision": 5,
+      "positionSeconds": null
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-000000000585",
+      "status": "persisted"
+    }
+  },
+  "release-command-receipt": {
+    "commandID": "abcdefab-0000-4000-8000-000000000583",
+    "status": "applied"
+  },
+  "scope": "synthetic-source-only-not-runtime-readiness"
+}

@@ -46,6 +46,153 @@ private func wireFixture(_ name: String, _ key: String) throws -> Data {
     return try JSONSerialization.data(withJSONObject: value)
 }
 
+private func nativeUUIDBody(_ key: String) throws -> Data {
+    let value = try JSONSerialization.jsonObject(with: wireFixture("native-uuid-transaction", key))
+    let object = try #require(value as? [String: Any])
+    let body = try #require(object["body"])
+    return try JSONSerialization.data(withJSONObject: body)
+}
+
+private func nestedRecoveryFixture(_ name: String, _ key: String, _ member: String) throws -> Data {
+    let decoded = try JSONSerialization.jsonObject(with: wireFixture(name, key))
+    let object = try #require(decoded as? [String: Any])
+    let value = try #require(object[member])
+    return try JSONSerialization.data(withJSONObject: value)
+}
+
+private func recoveryAPI(_ transport: FixtureTransport) throws -> KidsReceiverAPI {
+    try KidsReceiverAPI(
+        server: ParentServer("http://127.0.0.1:9"),
+        serverID: "10000000-0000-4000-8000-000000000001",
+        childUserID: "10000000-0000-4000-8000-000000000003",
+        deviceID: "10000000-0000-4000-8000-000000000004",
+        token: "synthetic", transport: transport
+    )
+}
+
+@Test
+func `historical reports preserve old revision through current denial and exact retry`() async throws {
+    let transport = try FixtureTransport(replies: [
+        wireFixture("historical-usage", "original-allow"), wireFixture("historical-usage", "current-denial"),
+        nestedRecoveryFixture("historical-usage", "late-progress", "response"),
+        nestedRecoveryFixture("historical-usage", "late-progress", "response"),
+        nestedRecoveryFixture("historical-usage", "old-controller-stopped", "response"),
+        wireFixture("historical-usage", "still-denied")
+    ])
+    let api = try recoveryAPI(transport)
+    #expect(try await api.policy().viewingAllowed)
+    #expect(try await !api.policy().viewingAllowed)
+    let progress = try JSONDecoder().decode(ReceiverEvent.self, from: nestedRecoveryFixture("historical-usage", "late-progress", "request"))
+    let stopped = try JSONDecoder().decode(
+        ReceiverEvent.self,
+        from: nestedRecoveryFixture("historical-usage", "old-controller-stopped", "request")
+    )
+    try await api.send(progress)
+    try await api.send(progress)
+    try await api.send(stopped)
+    let denied = try await api.policy()
+    #expect(!denied.viewingAllowed)
+    #expect(denied.revision == 5)
+    let requests = await transport.requests
+    #expect(requests[2].httpBody == requests[3].httpBody)
+    let reports = try requests.compactMap { request in
+        try request.httpBody.map { try JSONDecoder().decode(ReceiverEvent.self, from: $0) }
+    }
+    #expect(reports == [progress, progress, stopped])
+    #expect(reports.allSatisfy { $0.policyRevision == 2 })
+}
+
+@Test
+func `late command persistence receipt is distinct from fresh release action receipt`() async throws {
+    let transport = try FixtureTransport(replies: [
+        wireFixture("late-ack", "delivered-policy"), nestedRecoveryFixture("late-ack", "expired-ACK", "response"),
+        wireFixture("late-ack", "fresh-release-policy"), nestedRecoveryFixture("late-ack", "release-ACK", "response")
+    ])
+    let api = try recoveryAPI(transport)
+    let delivered = try await api.policy()
+    let expired = try JSONDecoder().decode(ReceiverEvent.self, from: nestedRecoveryFixture("late-ack", "expired-ACK", "request"))
+    #expect(expired.commandID == delivered.commands.first?.commandID)
+    try await api.send(expired)
+    // send accepts only the event persistence receipt. It never interprets it as
+    // an applied parent action or locally grants permission on that basis.
+    let release = try await api.policy()
+    let acknowledgement = try JSONDecoder().decode(ReceiverEvent.self, from: nestedRecoveryFixture("late-ack", "release-ACK", "request"))
+    #expect(release.policyControl?.kind == .release)
+    #expect(acknowledgement.commandID == release.policyControl?.commandID)
+    #expect(acknowledgement.commandID != expired.commandID)
+    try await api.send(acknowledgement)
+    let requests = await transport.requests
+    let events = try requests.compactMap { request in
+        try request.httpBody.map { try JSONDecoder().decode(ReceiverEvent.self, from: $0) }
+    }
+    #expect(events == [expired, acknowledgement])
+    #expect(events.map(\.policyRevision) == [3, 5])
+}
+
+private func nativeUUIDAPI(_ transport: FixtureTransport) throws -> KidsReceiverAPI {
+    try KidsReceiverAPI(
+        server: ParentServer("http://127.0.0.1:9"),
+        serverID: "10000000-0000-4000-8000-000000000001",
+        childUserID: "10000000-0000-4000-8000-000000000003",
+        deviceID: "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF",
+        token: "synthetic",
+        transport: transport
+    )
+}
+
+@Test
+func `native UUID transaction preserves subject spelling and matches canonical receipts`() async throws {
+    let transport = try FixtureTransport(replies: [
+        nativeUUIDBody("bootstrap-response"), nativeUUIDBody("exact-byte-retry"),
+        nativeUUIDBody("policy-response"), nativeUUIDBody("uppercase-control-ACK-response")
+    ])
+    let api = try nativeUUIDAPI(transport)
+    let bootstrap = try JSONDecoder().decode(ReceiverEvent.self, from: wireFixture("native-uuid-transaction", "bootstrap-request"))
+    try await api.send(bootstrap)
+    try await api.send(bootstrap)
+    let policy = try await api.policy()
+    #expect(policy.deviceID == "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF")
+    let acknowledgement = try JSONDecoder().decode(
+        ReceiverEvent.self,
+        from: wireFixture("native-uuid-transaction", "uppercase-control-ACK-request")
+    )
+    #expect(acknowledgement.commandID == policy.policyControl?.commandID)
+    try await api.send(acknowledgement)
+    let requests = await transport.requests
+    #expect(requests[0].httpBody == requests[1].httpBody)
+    for request in requests where request.httpMethod == "POST" {
+        let data = try #require(request.httpBody)
+        let value = try JSONSerialization.jsonObject(with: data)
+        let object = try #require(value as? [String: Any])
+        #expect(object["deviceID"] as? String == "ABCDEFAB-ABCD-4ABC-8ABC-ABCDEFABCDEF")
+        #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == object["eventID"] as? String)
+    }
+}
+
+@Test
+func `installation alias is rejected before sending a scoped receiver event`() async throws {
+    let transport = FixtureTransport(data: Data("{}".utf8))
+    let api = try nativeUUIDAPI(transport)
+    await #expect(throws: ParentControlError.invalidSelection) {
+        try await api.send(ReceiverEvent(
+            deviceID: "abcdefab-abcd-4abc-8abc-abcdefabcdef",
+            childUserID: "10000000-0000-4000-8000-000000000003",
+            policyRevision: 0,
+            kind: .heartbeat
+        ))
+    }
+    #expect(await transport.requests.isEmpty)
+}
+
+@Test
+func `policy cannot substitute a differently spelled installation identity`() async throws {
+    let value = try JSONSerialization.jsonObject(with: nativeUUIDBody("policy-response"))
+    var object = try #require(value as? [String: Any])
+    object["deviceID"] = "abcdefab-abcd-4abc-8abc-abcdefabcdef"
+    let api = try nativeUUIDAPI(FixtureTransport(data: JSONSerialization.data(withJSONObject: object)))
+    await #expect(throws: ParentControlError.serverMismatch) { try await api.policy() }
+}
+
 @Test(arguments: ["activated-idle-heartbeat", "playing-heartbeat", "ambient-start", "ambient-heartbeat"])
 func `backend heartbeat vectors roundtrip all scoped event fields`(_ key: String) async throws {
     let rootData = try wireFixture("heartbeats", key)

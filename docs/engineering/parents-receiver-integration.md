@@ -124,7 +124,7 @@ actual request bytes. Server code reports that body/header UUID spelling must ma
 exactly first; event and command UUIDs then normalize together, including correlated
 control IDs. Swift's uppercase UUID representation is expected. Installation/child/
 Jellyfin identity spelling remains unchanged. A joined backend transaction fixture
-for the uppercase native case is still pending.
+for the uppercase native case now has an exact tested fixture, described below.
 
 Receiver409 errors preserve their structured code. Only a no-usage heartbeat
 (elapsed0, commandIDnull, exact local scope) may be discarded on `lease_mismatch`,
@@ -135,18 +135,26 @@ conflicts, clock rollback and restore-review requirements remain fail closed.
 
 Reports retain their original policy revision. Operational progress excludes pauses,
 buffering, nonfinite positions, implausible jumps and delayed samples; residual
-progress is queued before ended/stopped. Activation during playback queues started
-before subsequent progress. This is operational observation, not physical frame or
+progress is queued before ended/stopped. Preparation alone never queues normal
+started/progress/stopped or a controller-bound heartbeat. The actual operational
+start callback precedes subsequent usage in FIFO order. Activation may adopt an
+already-begun, non-ended controller; it cannot invent a start for a preparing player.
+Paused/buffering transitions carry zero elapsed time, after any accrued playing
+interval. If activation cannot be saved securely, existing playback pauses and stops
+while the process remains held; a successful durable activation is not claimed.
+This is operational observation, not physical frame or
 audio certification. AmbientStarted likewise means the supported player callback,
 not independently verified pictures or sound.
 Normal started/progress/paused/buffering/ended/stopped retain the controller's last
 actually granted viewing revision. A later DENY snapshot cannot replace that grant
-provenance; a subsequent allowed lease may advance it for that same controller.
+provenance; a subsequent allowed lease may advance it for that same controller only
+after the accrued interval is flushed under the previous grant.
 Already-queued events stay immutable. Heartbeat/control/ambient observations retain
 their separately captured current policy/delivery revision. Explicit deactivation
 ends enforced accounting under the old grant before the receiver transitions off,
 even if the underlying controller keeps playing in the parent-authorized unenforced
-state. The backend's retrospective acceptance remains a rollout dependency.
+state. Backend checkpoint `8890ead` implements bounded retrospective acceptance
+in source; deployed integration and runtime acceptance remain outstanding.
 
 Preferred shows move earlier on the home screen. Shuffle remains inside the chosen
 show, applies catalog restrictions before freshness, and may relax freshness only.
@@ -196,6 +204,34 @@ watched duration and null page cursor. No client-side ID was fabricated, and the
 older excerpt remains rejected. This is fixture/source compatibility, not deployed
 service or household-history acceptance.
 
+The backend checkpoint `ed4cbccd960d5ec9e64e3b6dcce385e697559f41` reports142 joined
+source tests with no skips, including real HTTP/auth/SQLite UUID transactions,
+activation UI and historical control-delivery receipts. Its raw3,664-byte
+`Fixtures/native-uuid-transaction.json` matches SHA-256
+`e466215b9e2d6007dc8bce68910a90ed669083fd9e09d5456e0936d45b6b8744`.
+Native tests replay uppercase event/control UUIDs against canonical lowercase
+receipts, preserve the installation subject exactly, and keep header/body UUID
+spelling equal. The receiver now rejects installation aliases both before sending
+events and before accepting policy. No commissioning follows from these source tests.
+
+Backend successor `8890ead` reports162 distinct joined tests with no skips in its
+RAID-denied loopback sandbox. Two additional raw recovery fixtures independently
+match the supplied bytes and hashes on this Mac:
+
+| Fixture | Bytes | SHA-256 |
+| --- | --- | --- |
+| `historical-usage.json` | 4011 | `7b1ab300ea59d95f1682c7e21616af54e27dedf48b078f3ee1b6ed9a7cf343b5` |
+| `late-ack.json` | 5012 | `179c2cc0f16ff6387fe033f281571b136148f6555054aa6b64b1a7b542fc9aa5` |
+
+The native wire tests retain an old granted revision through a current DENY and
+retry identical encoded reports. Late command evidence receives only an ordinary
+event-persistence receipt; the original expired action stays failed. A subsequent
+fresh release has its own policy and acknowledgement. Backend accounting snapshots
+are server-executed provenance, not local database tests. Unknown, never-delivered,
+cross-subject, epoch and integrity failures still fail closed; the source recovery
+window is seven days. First-start evidence delayed until after a policy change is
+a separately raised recovery edge, not silently accepted by these fixtures.
+
 The original 19-fixture bundle was reported with SHA-256
 `1a6609c64ca36ede6714f30187be0c4cb16db86caf26a7884dab0b7ac6d8cc99`.
 The later never-activated heartbeat fixture was reported with SHA-256
@@ -214,23 +250,30 @@ As of this record, the server confirmed these remaining compatibility gates:
    null session/item/position is accepted only with a concrete exact delivered control
    command ID and zero elapsed. Remote-command ACKs cannot use this idle shape;
    ambientStarted requires an actual controller session. This is not deployed.
-3. Accept queued reports against their original granted lease/delivery, including
-   previous revisions and failed-release redelivery. This remains a backend gate.
-   The client now preserves the confirmed last-granted-controller revision for final
-   reports after denial/deactivation; the server must accept that historical evidence
-   without minting permission, refunding uncertainty or reviving obsolete commands.
+3. Integrate source-complete queued-report/control recovery against the client,
+   including the first-start outage edge. Validate original-grant accounting without
+   minting permission, refunding uncertainty or reviving obsolete commands.
 4. Freeze complete watched/recent context and test shuffle across devices.
 5. Finish the startup/catalog adapter and runtime evidence gates, then deploy the
-   scoped APIs only after its independent cache-repair/deployment gates.
+   scoped APIs after integrating the deployed repair source. The independent V2
+   cache-maintenance goal is now reported complete; that is not Parents readiness.
 
 The adult credential issue/list/revoke/show-once UI is reported implemented in
 backend `kids_cache/static/parent-control.html/.js/.css`, with a manager entry and
 offline DOM verification. It is not installed. Its served route is requested for
-native Settings onboarding. A usable per-device activation screen remains an
-explicit backend source task: current revision/status, gated enable/disable and
-uncertain-result handling must accompany the already-tested enforcement route.
+native Settings onboarding. The backend checkpoint also reports the per-device
+activation screen implemented in source, including gated enable/disable and
+uncertain-result handling. Installed integration and commissioning remain open.
 
-Joined transaction proof of uppercase native UUID correlation remains pending.
+Receipt sizing is a rollout gate: one uninterrupted five-second heartbeat stream
+produces120,960 events in seven days, exceeding the backend's earlier50,000 global
+receipt cap before other devices/transitions. Policy polling is five seconds, the
+one-second watchdog is local, and normal progress replaces idle heartbeats when
+queued. Background polling is suspended. The server agent is resolving capacity
+and admission limits; no live load has been generated.
+
+Joined transaction proof of uppercase native UUID correlation is now source-tested
+on the backend and matched by exact native fixture tests.
 The fractional playing sample's integral public budget/history output is now tested
 against exact backend fixtures. Public used/history seconds are confirmed
 floored; held/unconfirmed seconds are ceiled; authoritative remaining floors the
@@ -272,11 +315,11 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 42 passed |
+| KidsParentControl transport/feature/fixture tests | 47 passed |
 | KidsViewingControl pure policy tests | 16 passed |
 | KidsAccounts configuration contracts | 18 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 28 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 33 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 7 passed |
 | Package ownership/import/dependency audit | Passed, 55 libraries |
 | Architecture-checker unit tests | 25 passed |
@@ -301,9 +344,14 @@ account, TV experience and host-adapter sources so a build can be tied to this c
 `KidsJellyFin tvOS` and `KidsJellyFin Parents` generic simulator builds both passed
 (arm64 and x86_64), with signing disabled. The subsequent control-only ambient
 update rebuilt the TV app through KidsValidation with `ONLY_ACTIVE_ARCH=NO`; all
-28 selected application-boundary tests passed. The TV build's embedded
+33 selected application-boundary tests passed after the reporting lifecycle update.
+New cases cover no-start preparation/heartbeat/stop suppression, actual driver
+readiness before usage, zero-elapsed transport transitions, residual old-grant
+flush before renewal, stopping a legacy controller on activation-storage failure,
+and byte-identical late-ACK outage recovery before fetching/acknowledging release.
+The TV build's embedded
 `KidsEvidenceImplementationRevision` exactly matched the final source digest:
-`743860c6b6342bdfbc7b97273012517b49643c96461c27b7652f25f62fddb854`.
+`fc253dc3a5f0ef7832126747a72a027abe1d5b1fc87e15cd12a7f6c88a3e12a6`.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

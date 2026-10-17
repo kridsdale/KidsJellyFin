@@ -1,0 +1,132 @@
+{
+  "accounting-after": {
+    "historyWatchedSeconds": 5.0,
+    "reservedSeconds": 0,
+    "revision": 4,
+    "unconfirmedSeconds": 25.0,
+    "usedSeconds": 5.0
+  },
+  "accounting-before": {
+    "historyWatchedSeconds": 0.0,
+    "reservedSeconds": 0.0,
+    "revision": 4,
+    "unconfirmedSeconds": 30.0,
+    "usedSeconds": 0.0
+  },
+  "current-denial": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [
+      "10000000-0000-4000-8000-000000000005"
+    ],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:04:35.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "revision": 4,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:05.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:05.000Z",
+    "viewingAllowed": false
+  },
+  "history-page": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "items": [
+      {
+        "deviceName": "Synthetic TV",
+        "evidence": "incomplete",
+        "id": "cccccccc-dddd-4eee-8fff-aaaaaaaaaaaa",
+        "itemID": "10000000-0000-4000-8000-000000000006",
+        "startedAt": "2026-10-17T12:00:00.000Z",
+        "title": "Synthetic approved episode",
+        "watchedSeconds": 5
+      }
+    ],
+    "nextCursor": null
+  },
+  "late-progress": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": null,
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 5,
+      "eventID": "abcdefab-0000-4000-8000-00000000057d",
+      "itemID": "10000000-0000-4000-8000-000000000006",
+      "kind": "progress",
+      "playbackSessionID": "observed-controller",
+      "policyRevision": 2,
+      "positionSeconds": 5
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-00000000057d",
+      "status": "persisted"
+    }
+  },
+  "old-controller-stopped": {
+    "request": {
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commandID": null,
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "elapsedPlayingSeconds": 0,
+      "eventID": "abcdefab-0000-4000-8000-00000000057e",
+      "itemID": "10000000-0000-4000-8000-000000000006",
+      "kind": "stopped",
+      "playbackSessionID": "observed-controller",
+      "policyRevision": 2,
+      "positionSeconds": 5
+    },
+    "response": {
+      "commandID": "abcdefab-0000-4000-8000-00000000057e",
+      "status": "persisted"
+    }
+  },
+  "original-allow": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:05:00.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "revision": 2,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:00.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:30.000Z",
+    "viewingAllowed": true
+  },
+  "scope": "synthetic-source-only-not-runtime-readiness",
+  "still-denied": {
+    "birdItemID": null,
+    "blockedEpisodeIDs": [],
+    "blockedShowIDs": [
+      "10000000-0000-4000-8000-000000000005"
+    ],
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commands": [],
+    "deadline": "2026-10-17T12:04:35.000Z",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "finishPlaybackSessionID": null,
+    "revision": 5,
+    "serverID": "10000000-0000-4000-8000-000000000001",
+    "serverTime": "2026-10-17T12:00:05.000Z",
+    "shuffle": {
+      "preferUnwatched": false,
+      "preferredShowIDs": [],
+      "repeatCooldownDays": 0
+    },
+    "validUntil": "2026-10-17T12:00:05.000Z",
+    "viewingAllowed": false
+  }
+}

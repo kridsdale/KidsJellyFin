@@ -48,6 +48,15 @@ public final class KidsPlaybackController: ObservableObject, Identifiable {
     public var allowsCheckpoints = true
     private var stopped = false
     private var started = false
+    /// Operational controller callbacks only, not certification of native output.
+    public var hasBegunPlayback: Bool {
+        began
+    }
+
+    public var hasEndedPlayback: Bool {
+        finished || stopped
+    }
+
     private var tickTask: Task<Void, Never>?
     private var eventSubscription: AnyCancellable?
     private var requestedStartPosition = 0.0

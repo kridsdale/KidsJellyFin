@@ -167,13 +167,13 @@ public struct KidsReceiverAPI: Sendable {
     public func policy() async throws -> ReceiverPolicy {
         let policy: ReceiverPolicy = try await http.request("api/kids/v1/policy", headers: headers)
         guard policy.serverID == serverID, policy.childUserID == childUserID,
-              let expected = UUID(uuidString: deviceID), UUID(uuidString: policy.deviceID) == expected
+              UUID(uuidString: deviceID) != nil, policy.deviceID == deviceID
         else { throw ParentControlError.serverMismatch }
         return policy
     }
 
     public func send(_ event: ReceiverEvent) async throws {
-        guard event.childUserID == childUserID, let expected = UUID(uuidString: deviceID), UUID(uuidString: event.deviceID) == expected,
+        guard event.childUserID == childUserID, UUID(uuidString: deviceID) != nil, event.deviceID == deviceID,
               event.policyRevision >= 0, event.elapsedPlayingSeconds.isFinite, (0 ... 30).contains(event.elapsedPlayingSeconds),
               event.positionSeconds == nil || (event.positionSeconds!.isFinite && event.positionSeconds! >= 0)
         else { throw ParentControlError.invalidSelection }
