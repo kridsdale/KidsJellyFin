@@ -36,21 +36,27 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 
 ## Scope to approve before execution
 
-The first runtime stage uses one explicitly selected simulator installation and a
-dedicated test child/profile, receiver identity and control credential. Record the
+The first runtime stage uses one explicitly selected simulator installation and the
+existing, explicitly configured Jellyfin child identity, with isolated trial control
+state and dedicated receiver/parent control credentials. It does not create a new
+Jellyfin account or alter the existing child's permissions. Record the
 exact Jellyfin server ID, approved Kid TV/Kid Movies library IDs, selected safe
 episode/movie/bird IDs, receiver vendor UUID, child ID, client build and backend
 commit before provisioning. Do not substitute a Jellyfin transport-prefixed device
 ID for the receiver's vendor UUID.
 
 The backend agent must first supply the concrete executable/configuration, state
-directory, bind address/port, service definition, migration/backup procedure and
-rollback commands. Review these against the installed service before approval;
-this document does not assume an unused port or invent installation commands.
+directory, bind address/port, immutable payload and staging manifest, and stop/rollback
+commands. The finite trial uses port18097 and no launchd service; verify the port and
+fresh installed-state guards in the prepared packet before approval. A later
+production package additionally needs its service definition, migration/backup and
+paired monitor/SRE changes. A prepared packet is not permission to execute it.
 
-Approval for this stage must explicitly cover installing/starting the optional
-control service, issuing isolated credentials, activating only the test receiver,
-and playing only the selected approved items. Per-client faults and restart of the
+Approval for this stage must explicitly cover privileged payload staging, starting
+the finite trial process, issuing isolated control credentials, activating only the
+test receiver, and playing only the selected approved items. The trial configuration
+expires within four hours; an expired packet needs fresh guards and configuration.
+Per-client faults and restart of the
 new optional process are separate from rebooting the host, stopping Jellyfin or
 changing household networking. Those broader actions require their own scope.
 

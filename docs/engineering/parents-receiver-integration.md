@@ -39,8 +39,9 @@ Jellyfin transport prefix or rewrite letter case. The token is separate from bot
 the child's Jellyfin login and the phone's adult control credential.
 
 The current manager origin is `http://192.168.10.100:8097`; its hostname origin is
-rejected by the deployed service. New native routes are still backend source work.
-Do not attempt to provision by treating the existing manager as the future API.
+rejected by the deployed service. New native routes are implemented in the frozen
+backend source but remain uninstalled. The separate prepared trial uses port18097;
+do not attempt provisioning against the deployed manager before an approved rollout.
 
 Activation requires a scoped policy response with explicit `enforcementEnabled:true`.
 The TV stores its activation marker before permitting enforced normal playback.
