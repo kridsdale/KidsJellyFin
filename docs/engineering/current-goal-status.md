@@ -30,6 +30,12 @@ unverified. No privileged copy or config staging has occurred. Approval was requ
 for those two explicit scopes, without service start or credential issuance.
 Production monitor/SRE orchestration remains engineering work; the tested file
 transaction component is not an end-to-end native installer.
+The production-flow source reached27 targeted passing tests before a handoff review
+identified a further gap: isolated-trial receipts cannot validate a different
+production credential. A guarded same-state/same-token handoff is now being
+implemented. It must preserve safety history, prevent a second active authority and
+keep enforcement off until explicit production commissioning. Those new changes
+are not covered by the earlier27-test result and have not moved any live state.
 Deployment, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete

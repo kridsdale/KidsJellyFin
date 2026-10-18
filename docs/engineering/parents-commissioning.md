@@ -155,6 +155,13 @@ The backend checks the current credential/scope/epoch when installing. Productio
 evidence must be created within24 hours; expiry cannot exceed created+180 days or
 the actual credential expiry (currently at most30 days).
 
+**Open handoff engineering:** proof from the isolated trial cannot be relabeled
+with a different production token ID. The backend is implementing a guarded
+same-state/same-token handoff; it is not yet a validated or executed path. That
+handoff must prevent a second active trial authority, preserve all safety history
+and credential expiry, and leave enforcement off until explicit production
+commissioning. Do not substitute a copied database or rewritten receipt scope.
+
 `files` contains1–64 entries, each with exactly `path`, `sha256` and `bytes`.
 Each entry names a private internal regular JSON file, at most2MiB, in the same
 directory as the envelope; symlink following is forbidden. Each receipt must bind
