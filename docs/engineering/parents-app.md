@@ -93,7 +93,12 @@ or launching the offline preview.
 
 ### Delivery requirements and completion evidence
 
-All thirteen requested phone features have source UI and scoped protocol methods.
+All thirteen requested phone features have source UI paths. Twelve use the optional
+parent API capabilities; playlist selection/import uses the existing authenticated
+immutable-review manager, without a thirteenth native capability. The receiver's
+`playback-grants-v1` extension is an admission prerequisite, not another product
+feature. The backend's thirteen cross-cutting commissioning safety checks are a
+separate list; neither count establishes feature acceptance.
 The following acceptance items remain part of the goal; compiling the screens does
 not complete them. Existing approved libraries and protected RAID media must stay
 unchanged throughout commissioning.

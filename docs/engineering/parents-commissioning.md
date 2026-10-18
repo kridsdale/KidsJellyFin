@@ -111,10 +111,14 @@ whole child's history. Stage-only preparation does not change viewing history.
 
 | Trial | Action | Required observation |
 | --- | --- | --- |
+| Authentication scope | Use only approved test credentials; check missing, retired and wrong-scope credentials through the reviewed trial facility | Rejected requests cannot reveal another child or obtain policy/mutation authority; raw secrets never enter exported evidence |
+| Catalog boundary | Compare the exact approved Kid TV/Kid Movies bindings with browse, queue and explicit-item paths | No unapproved library/item becomes accessible; show/episode restrictions apply without changing media or library mappings |
+| Policy binding | Exercise exact child/device/controller/item and freshness checks | A policy for another binding, an expired lease or a receipt alone cannot authorize playback |
 | Idle and preparation | Leave home open; prepare an item without starting | Idle polls and intent POST alone reserve/debit zero; no invented started event |
 | First start | Play the selected item | Intent receipt precedes fresh exact bound policy; actual controller starts only after usable ALLOW |
 | Pause and resume | Pause, wait, then resume the same controller | Evidence FIFO precedes exact surrender; local hold overrides cached lease; new intent precedes resume; new started follows actual resumed output |
 | Lost receipt | Interrupt only the test request after persistence | Original command/body is retried; no duplicate reservation or automatic playback from receipt |
+| Historical evidence drain | Retire a controller while its observed events remain queued, using the reviewed isolated fault facility | Original event identities/provenance drain without authorizing playback, refunding unknown past or applying old events to a replacement controller |
 | Background and replacement | Background/stop while a grant is pending | Late reply cannot start/resume an old controller or cross identity; exact orphan is retired |
 | Buffer hold | Induce an isolated test-client stall, then restore availability | Pause/surrender occurs; automatic recovery requires new readiness while held on the same controller/item; attempts are bounded |
 | Readiness lost again | Lose readiness during the resume grant request | No transport resume and no new-generation usage claim; terminal evidence retains its observed provenance |
@@ -127,6 +131,75 @@ whole child's history. Stage-only preparation does not change viewing history.
 Do not alter the Mac's system clock or the household router to execute these tests.
 Where a deterministic clock/transport fault is unavailable in the installed test
 environment, retain the synthetic result and mark that runtime trial unobserved.
+
+## Runtime evidence handoff
+
+The frozen backend contract is `c799d2d6`,
+`kids_cache/parents/commissioning.py`, `CommissionManager.install`. Its operator
+readiness envelope has exactly these top-level keys:
+
+```text
+schemaVersion, purpose, id, serverID, childUserID, deviceID,
+receiverTokenID, clientBuildSHA256, backendSourceSHA256, contracts,
+created, expires, operatorApproved, actualReceiverTrial,
+safetyChecks, contractChecks, files
+```
+
+For production acceptance, `schemaVersion` is1, `purpose` is
+`receiver-runtime-acceptance`, `id` is a canonical UUID, `contracts` is a unique
+nonempty selection of the backend's known wire contracts, and the operator must
+explicitly approve actual receiver trials. Do not produce an approved envelope
+before observing the trials. The envelope binds the actual receiver token ID and
+scope, not a raw token or a trial token substituted for a production token.
+The backend checks the current credential/scope/epoch when installing. Production
+evidence must be created within24 hours; expiry cannot exceed created+180 days or
+the actual credential expiry (currently at most30 days).
+
+`files` contains1–64 entries, each with exactly `path`, `sha256` and `bytes`.
+Each entry names a private internal regular JSON file, at most2MiB, in the same
+directory as the envelope; symlink following is forbidden. Each receipt must bind
+the same six scope fields: `serverID`, `childUserID`, `deviceID`, `receiverTokenID`,
+`clientBuildSHA256` and `backendSourceSHA256`. It must declare
+`kind: receiver-runtime-trial` and `synthetic: false` only for a real trial.
+Extra receipt fields may record case identifiers, timestamps, actual human/XCTest
+observations and captured-artifact hashes. Exclude raw credentials and media paths.
+
+The exact `safetyChecks` keys are listed below. All must be supported by actual
+observations before being approved; a source test, preview or copied Boolean
+cannot establish the corresponding runtime behavior.
+
+| Safety key | Evidence from the ordered trials |
+| --- | --- |
+| `auth_scope` | Authentication-scope refusals and unchanged authority |
+| `library_boundary` | Exact approved catalog and all playback entry points |
+| `policy_binding` | Child/device/controller/item binding and finite freshness |
+| `intent_start` | Intent receipt, fresh bound policy and actual start ordering |
+| `pause_resume` | Observed pause, surrender and fresh-intent resume |
+| `buffer_resume` | Same-controller held recovery with newly observed readiness |
+| `stop_cancel_eof` | Actual stop/cancellation/EOF and terminal provenance |
+| `historical_drain` | Retired-controller evidence drains without new authority |
+| `unknown_post_recovery` | Original unknown request replay and conservative recovery |
+| `outage_watchdog` | Isolated outage/expiry causes actual hold |
+| `restart_journal` | App/control restart preserves and resolves pending state |
+| `race_fencing` | Late callbacks/replacements cannot revive retired authority |
+| `control_semantics` | Actual behavior for each selected feature contract |
+
+`contractChecks` has exactly the selected `contracts` as keys. Each value is a
+nonempty list of hashes of referenced receipt JSON files. The backend validates
+scope and structure; it does not interpret or attest the extra observation fields.
+The operator must review the underlying facts and artifacts independently. Keep
+unsupported native frame/audio callbacks labeled unsupported; weaker counters,
+heartbeats, leases or screenshots alone do not prove audible/visible playback.
+The offline412-byte installation-identity receipt and synthetic fixtures cannot
+serve as runtime acceptance.
+
+There is currently **no check-only envelope-validation CLI**. In particular,
+`run_parent_operator.py commission --install-evidence ... --expect ... --confirm`
+installs the registry and must never be used for linting. `--inspect` and
+`--reconcile` do not provide check-only envelope validation. Any future nonmutating
+preflight helper needs explicit implementation and verification; its absence does
+not authorize installation. Registry installation remains a separately approved
+action after evidence review.
 
 ## Feature acceptance matrix
 
