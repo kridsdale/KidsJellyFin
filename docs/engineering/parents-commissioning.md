@@ -63,6 +63,11 @@ changing household networking. Those broader actions require their own scope.
 Existing RAID media, staging links, library roots, child permissions and import
 publication state remain untouched. All control state/backups and trial evidence
 live off RAID. No library scan or import is needed for the initial control trials.
+Isolated control state does not isolate Jellyfin viewing history: playback through
+the existing child can change watched/resume state for the selected items. Include
+those effects in playback approval. If restoration is approved, capture only those
+items first and reject restoration over concurrent family changes; never reset the
+whole child's history. Stage-only preparation does not change viewing history.
 
 ## Ordered execution
 
