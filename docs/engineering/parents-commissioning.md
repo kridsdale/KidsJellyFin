@@ -24,7 +24,7 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 - The original Debug and optimized Release tvOS simulator builds both passed and
   independently matched the staged declaration. No signed-device install or live trial
   is implied by those build results.
-- Backend runtime source is frozen at `c799d2d62d408d01be5cdd745fa2ec4b5b673213`,
+- Original staged backend runtime is `c799d2d62d408d01be5cdd745fa2ec4b5b673213`,
   package SHA-256 `e6f44633ee7035e19c02cefee8b86e66abf6653a5937f8f6259278c88d0df17f`.
   The server reports492 distinct joined tests with no failures/errors/skips and one
   separately enforced native-policy startup/drain test. The600,000-row storage
@@ -44,7 +44,8 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
   database creation, service start, credentials, registry, activation or playback ran.
   Separate production orchestration and same-state/same-token handoff source is
   now reported committed with65 focused tests and a native check of27 execution
-  policies passing; exact source pins await the concise handoff. None of that
+  policies passing; exact source pins are now available in the human-approved
+  private technical handoff. None of that
   tooling has been executed against installed state. The original staged packet
   remains unchanged and has no production command.
 - The original offline preview UI check observed the isolated installation's real
@@ -251,6 +252,50 @@ background locking and device transitions. Physical Apple TV playback, reboot an
 iCloud acceptance remain explicit deferred work, not implied by simulator success.
 
 ## Evidence and rollback
+
+### Local stop timer for a future manual trial
+
+`Scripts/Kids/parents_trial_guard.py` is a source-prepared backup stop timer for
+one approved simulator/build. It never launches an app, starts playback, contacts
+a server or restores progress. It is not yet used for a live trial. Its twelve
+unit tests use fake clocks/command senders and private scratch files only.
+
+After separate runtime approval, prepare an owner-only JSON plan with exactly
+`schemaVersion: 1`, `purpose: "parents-manual-playback-guard"`, the exact
+`simulatorID`, `clientBuildSHA256`, timezone-aware `expiresAt` no later than the
+approved trial expiry, and integer `maximumSeconds` from1 through600. A plan or
+the CLI opt-in flag is an operator input, not proof of human authorization.
+The future invocation is:
+
+```sh
+python3 Scripts/Kids/parents_trial_guard.py \
+  --plan /private/tmp/APPROVED-GUARD-PLAN.json \
+  --receipt /private/tmp/NEW-GUARD-RECEIPT.jsonl \
+  --run-approved-trial
+```
+
+Begin manual playback only after `guard_ready`, on the separately approved exact
+items. The timer reserves five seconds for its bounded termination command and
+shortens to the remaining plan validity. It verifies the app container/build
+before waiting and again before stopping, refuses replacements, handles terminal
+interrupt/hangup/termination signals and still requests stop if receipt writing
+fails. New receipts are exclusive owner-only files opened directly in a pinned
+internal temporary directory; none are placed on RAID.
+
+Command acceptance is not observed transport stop or server drain. Verify actual
+output cessation, process state and the receiver/server release independently;
+retain uncertainty and fail the trial if stop cannot be verified. These guard
+records declare `actualReceiverTrial: false` and cannot be commissioning proofs.
+Abrupt host failure remains outside a local timer's guarantees.
+
+Before any playback approval, prepare scoped read-only Jellyfin progress captures
+for only the approved items. Playback can change their watched/resume state.
+Default to preserving those changes and private before/after snapshots. Do not
+automatically restore from a read-compare-write sequence: it cannot by itself
+prevent a concurrent family update between comparison and write. Any requested
+restoration needs a separately reviewed procedure that protects newer activity.
+
+### Observations and server recovery
 
 For every trial, record its ID, exact client/backend revisions and identities,
 preconditions, action, server result, receiver result, visible result and pass/fail/

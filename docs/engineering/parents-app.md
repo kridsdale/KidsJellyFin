@@ -166,8 +166,9 @@ ambient selection. Selecting the URL did not download or import it.
 The original importer requires a real playlist ID and does not admit this
 standalone video URL. The server now reports a committed single-video extension
 through the same immutable adult review workflow and a separate matching trial
-draft. The detailed technical handoff awaits explicit sharing authorization after
-an automatic approval-review rejection. No new draft/runtime/media action has run;
+draft. The human approved technical-handoff sharing after an initial automatic
+approval-review rejection; the handoff is now received for private review.
+No new draft/runtime/media action has run;
 no playlist ID or Jellyfin item ID may be invented to bypass admission.
 
 Every newly prepared ambient session, including an EOF loop restart, now draws a

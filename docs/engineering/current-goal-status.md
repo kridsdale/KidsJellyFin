@@ -25,8 +25,8 @@ included, and no TestFlight/manual release was triggered by this feature-branch 
 
 The client also declares its embedded build in receiver HTTP headers and protected
 pairing settings, and provides explicit PIN-protected archival after a verified
-server epoch fault without granting playback or resetting accounting. Backend runtime
-source is frozen at `c799d2d6`:492 joined tests plus one separate native-policy test
+server epoch fault without granting playback or resetting accounting. The original
+staged backend runtime is `c799d2d6`:492 joined tests plus one separate native-policy test
 pass, and the unchanged build fixture passes native replay. All4,619 approved file
 parts reconcile to4,508 playable items with zero missing/unexpected entries.
 An offline UI identity check passed again for the current build, retaining the
@@ -42,8 +42,9 @@ write allowances,10 RAID write denials,2 RAID read denials and5 family write den
 with zero write probes. No database initialization or service start occurred.
 The server reports a committed production-flow and same-state/same-token handoff
 checkpoint with65 focused tests passing, a separate native check covering27
-phase/recovery policies and a read-only117-file dependency-closure check. Exact
-source pins are awaiting the concise handoff. These checks are source preparation,
+phase/recovery policies and a read-only117-file dependency-closure check. The
+human-approved technical handoff now supplies exact pins for private review.
+These checks are source preparation,
 not a native installation trial. The handoff preserves safety history and token
 identity, prevents a second active authority and keeps enforcement off pending
 explicit production commissioning. New credentials require new actual trials;
@@ -52,10 +53,11 @@ The selected ten-hour birds URL is a standalone video. The server now reports it
 finite single-video admission additions and a separate matching trial draft are
 complete and committed. The original staged package remains unchanged; the new
 draft and source have not been deployed or executed. No download, import or
-fabricated playlist/item ID is authorized by staging. Automatic approval review
-rejected transfer of the detailed technical handoff without payload- and
-destination-specific human authorization. That sharing approval is pending;
-do not retrieve the withheld report or infer runtime approval from its status.
+fabricated playlist/item ID is authorized by staging. After automatic approval
+review initially rejected the technical-handoff transfer, the human explicitly
+approved sharing it with this driver chat. The handoff is received and saved as a
+private local source-review artifact, not runtime evidence. It is being reviewed
+before a concrete runtime request; sharing approval does not authorize execution.
 Service installation/start, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete

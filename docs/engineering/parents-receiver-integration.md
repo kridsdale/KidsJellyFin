@@ -27,8 +27,8 @@ audit pass. Current Debug and optimized Release TV builds both pass and embed
 This is a new client identity; the original staged declaration remains `1c06…` and
 must not commission this changed build. Actual playback of the selected ten-hour
 video and native seek behavior are unobserved. The server reports its single-video
-admission source is committed; its technical handoff awaits explicit sharing
-authorization, and reviewed rollout/acquisition remain ahead. No media was imported.
+admission source is committed; its technical handoff is now received with explicit
+human sharing approval. Reviewed rollout/acquisition remain ahead. No media was imported.
 
 ### Receiver composition
 
