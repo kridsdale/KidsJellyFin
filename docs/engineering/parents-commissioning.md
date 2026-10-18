@@ -12,7 +12,7 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
   the subsequent build-declaration source is validated by the digest below.
 - Built/source implementation digest:
   `47e7f99fd2f940be797890f5f3d22512656b2659a7275393af393ff3fde5dcda`.
-- Synthetic checks: application50, protocol62, policy22, playback-session21 and
+- Synthetic checks: application51, protocol62, policy22, playback-session21 and
   VLC ownership21 tests passed. The55-library dependency audit passed.
 - Backend final reader/startup checkpoint and rollout commands: awaiting the
   server agent. Its earlier source checkpoint `0e239f5` reported425 tests.

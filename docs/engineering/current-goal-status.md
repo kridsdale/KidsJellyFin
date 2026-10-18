@@ -4,8 +4,9 @@
 
 The current goal is to complete the Parents iPhone app, its tvOS receiver and the
 backend integration, coordinating with **Make YT Feature**. It is not complete.
-Client checkpoint `0524f3ba` wires durable explicit playback admission and passes
-50 application,62 protocol,22 policy,21 session and21 VLC ownership synthetic tests;
+Client admission base `0524f3ba` and its subsequent build-declaration/phone fixes
+wire durable explicit playback admission. Current checks pass51 application,
+62 protocol,22 policy,21 session,21 VLC ownership and9 parent-model synthetic tests;
 the55-library boundary audit and built/source fingerprint match also pass.
 These source checks do not establish deployed parental enforcement or live playback.
 

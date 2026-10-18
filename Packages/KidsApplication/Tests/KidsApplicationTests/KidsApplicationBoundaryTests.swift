@@ -216,6 +216,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         var boundReplies = 0
         var loseIntentOnce: Bool
         var holdGrant: Bool
+        var buildVerified = true
         let grantEntered = AsyncStream<Void>.makeStream()
         var grantContinuation: CheckedContinuation<Void, Never>?
 
@@ -244,9 +245,19 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             holdGrant = true
         }
 
+        func setBuildVerified(_ verified: Bool) {
+            buildVerified = verified
+        }
+
         func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             requests.append(request)
             let path = try XCTUnwrap(request.url?.lastPathComponent)
+            if path == "playback-intents", !buildVerified {
+                return try (
+                    Data(#"{"error":"receiver_build_unverified","message":"Operator verification required"}"#.utf8),
+                    XCTUnwrap(HTTPURLResponse(url: XCTUnwrap(request.url), statusCode: 501, httpVersion: nil, headerFields: nil))
+                )
+            }
             var status = 200
             let object: [String: Any]
             if request.httpMethod == "GET" {
@@ -496,6 +507,50 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         XCTAssertEqual(driver.starts, 0)
         let boundReplies = await transport.boundReplies
         XCTAssertEqual(boundReplies, 0)
+    }
+
+    func testUnverifiedBuildRetainsOriginalRequestAcrossRestartUntilSafeRetirement() async throws {
+        let (model, runtime, transport, directory) = try await grantHarness()
+        await transport.setBuildVerified(false)
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        do {
+            try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+            XCTFail("An unverified build cannot acquire viewing authority")
+        } catch { XCTAssertEqual(error as? ParentControlError, .unsupported) }
+        let originalIntent = try XCTUnwrap(runtime.admission.intent)
+        XCTAssertFalse(originalIntent.persisted)
+        XCTAssertNil(runtime.admittedIntentID)
+        XCTAssertEqual(driver.starts, 0)
+        await model.abandonPreparedViewing(playback)
+        let recovered = try KidsViewingRuntime(configuration: runtime.configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = recovered
+        do {
+            try await model.synchronizeViewingPolicy(recovered)
+            XCTFail("Restart must preserve the refused request while verification is unavailable")
+        } catch { XCTAssertEqual(error as? ParentControlError, .unsupported) }
+        XCTAssertEqual(recovered.admission.intent?.commandID, originalIntent.commandID)
+        XCTAssertEqual(recovered.admission.intent?.persisted, false)
+        XCTAssertEqual(recovered.admission.intent?.abandoned, true)
+        // Change only the injected test transport's gate. No real operator
+        // record, credential or service is created by this synthetic test.
+        await transport.setBuildVerified(true)
+        try await model.synchronizeViewingPolicy(recovered)
+        let requests = await transport.requests
+        let attempts = requests.filter { $0.url?.lastPathComponent == "playback-intents" }
+        XCTAssertEqual(attempts.count, 3)
+        for request in attempts.dropFirst() {
+            XCTAssertEqual(request.httpBody, attempts[0].httpBody)
+            XCTAssertEqual(request.value(forHTTPHeaderField: "Idempotency-Key"), attempts[0].value(forHTTPHeaderField: "Idempotency-Key"))
+        }
+        let lastIntent = try XCTUnwrap(requests.lastIndex { $0.url?.lastPathComponent == "playback-intents" })
+        XCTAssertEqual(requests[lastIntent + 1].url?.lastPathComponent, "playback-surrenders")
+        XCTAssertEqual(requests[lastIntent + 2].httpMethod, "GET")
+        XCTAssertNil(recovered.admission.intent)
+        XCTAssertNil(recovered.admittedIntentID)
+        let boundReplies = await transport.boundReplies
+        XCTAssertEqual(boundReplies, 0)
+        XCTAssertEqual(driver.starts, 0)
     }
 
     func testBackgroundWhileFreshGrantIsPendingCannotStartPreparedController() async throws {

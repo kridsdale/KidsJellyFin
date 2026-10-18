@@ -553,7 +553,7 @@ Local checks on 2026-10-17:
 | KidsViewingControl pure policy tests | 22 passed |
 | KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 50 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 51 passed |
 | KidsPlaybackSession lifecycle/passive observations/neutral resume admission | 21 passed |
 | VLCPlaybackOwnershipTests, fake native engine on tvOS Simulator | 21 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 9 passed |
@@ -595,9 +595,15 @@ Source fingerprints identify these builds; they do not certify a runtime budget 
 After the final source changes and formatting, the built TV app's
 `KidsEvidenceImplementationRevision` matches source SHA-256
 `47e7f99fd2f940be797890f5f3d22512656b2659a7275393af393ff3fde5dcda`.
-The build-declaration update reran all50 application tests and added protocol
+The build-declaration integration now passes all51 application tests and adds protocol
 coverage for all four receiver routes, unchanged frozen bodies and rejection of
 uppercase, malformed-length, nonhex and CRLF header values.
+The additional build-refusal case injects structured501 without committing an
+intent. It verifies a held player, retained original journal action across restart,
+byte-identical retries and exact retirement before an allocating GET once the
+synthetic transport's verification gate becomes available. No build refusal is
+treated as permission to discard state or start frames. This is a fake-transport
+client lifecycle test; final real-backend fixture replay is still pending.
 The shared-flight regression ensures a completed refresh is retired before a newly
 staged intent must be sent. A further readiness-loss test holds a granted resume
 before transport and preserves the earlier observed generation for terminal evidence;
