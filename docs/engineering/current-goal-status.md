@@ -5,13 +5,14 @@
 The current goal is to complete the Parents iPhone app, its tvOS receiver and the
 backend integration, coordinating with **Make YT Feature**. It is not complete.
 Client admission base `0524f3ba` and its subsequent build-declaration/phone fixes
-wire durable explicit playback admission. Current checks pass51 application,
+wire durable explicit playback admission. Current checks pass56 application,
 64 protocol,22 policy,21 session,21 VLC ownership and9 parent-model synthetic tests;
 the55-library boundary audit and built/source fingerprint match also pass.
 These source checks do not establish deployed parental enforcement or live playback.
 
 The client also declares its embedded build in receiver HTTP headers and protected
-pairing settings. The backend agent is finishing exact approved-library readers,
+pairing settings, and provides explicit PIN-protected archival after a verified
+server epoch fault without granting playback or resetting accounting. The backend agent is finishing exact approved-library readers,
 startup/maintenance locks and final verification of the operator commission
 registry/trial launcher. Its candidate transaction fixture passes native replay;
 final backend checkpoint confirmation is pending. Deployment, provisioning, isolated receiver commissioning

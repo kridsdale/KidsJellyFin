@@ -79,7 +79,7 @@ POLICIES = {
     "SwiftfinVLC": ({"KidsDiagnostics"}, {"Foundation", "Combine", "SwiftUI", "SwiftVLC", "UIKit", "AppKit"}),
     "SwiftfinNowPlaying": ({}, {"Foundation", "MediaPlayer", "UIKit"}),
     "SwiftfinAudioSession": ({"KidsDiagnostics"}, {"Foundation", "OSLog", "AVFAudio"}),
-    "KidsApplication": ({"KidsAccounts","KidsArtwork","KidsArtworkUI","KidsCatalog","KidsDiagnostics","KidsDomain","KidsPersistence","KidsPlaybackSession","KidsParentControl","KidsViewingControl"}, {"Foundation", "Combine", "CoreData", "SwiftData", "UIKit", "AVFoundation"}),
+    "KidsApplication": ({"KidsAccounts","KidsArtwork","KidsArtworkUI","KidsCatalog","KidsDiagnostics","KidsDomain","KidsPersistence","KidsPlaybackSession","KidsParentControl","KidsViewingControl"}, {"Foundation", "Combine", "CoreData", "SwiftData", "UIKit", "AVFoundation", "Darwin"}),
     "KidsExperience": ({"KidsAccounts","KidsApplication","KidsCatalog","KidsDiagnostics","KidsDiagnosticsUI","KidsDomain","KidsPlaybackSession","SwiftfinUIState"}, {"SwiftUI", "Combine"}),
     "KidsDomain": ({}, {"Foundation"}),
     "KidsAccounts": ({"KidsDomain","SwiftfinAsyncStreams"}, {"Foundation", "Combine"}),

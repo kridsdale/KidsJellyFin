@@ -6,9 +6,11 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import Darwin
 import Foundation
 import KidsAccounts
 import KidsDomain
+import KidsParentControl
 
 /// Captured mutation identity only. No token, cached permission, or media is stored.
 @MainActor
@@ -140,6 +142,39 @@ final class KidsAdmissionJournal {
             }
             $0.surrender = nil
         }
+    }
+
+    /// Explicit parent recovery only. Preserve the complete old outbox before
+    /// clearing local retry slots; the archive is never loaded as authority.
+    func archiveForEpochRecovery(events: [ReceiverEvent]) throws -> URL {
+        struct Archive: Encodable {
+            let reason: String
+            let journal: State
+            let events: [ReceiverEvent]
+        }
+        guard events.count <= 128 else { throw KidsContractError.denied }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        let data = try encoder.encode(Archive(reason: "command_epoch_changed", journal: state, events: events))
+        guard data.count <= 262_144 else { throw KidsContractError.denied }
+        let archive = url.deletingLastPathComponent().appendingPathComponent("epoch-recovery-\(UUID().uuidString).json")
+        try data.write(to: archive, options: .withoutOverwriting)
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: archive.path)
+        let handle = try FileHandle(forWritingTo: archive)
+        try handle.synchronize()
+        try handle.close()
+        let descriptor: Int32 = archive.deletingLastPathComponent().withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Darwin.open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else { throw KidsContractError.denied }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw KidsContractError.denied }
+        // A failed archive or synchronization never reaches this state change.
+        try update { $0.intent = nil
+            $0.surrender = nil
+        }
+        return archive
     }
 
     private func update(_ change: (inout State) -> Void) throws {

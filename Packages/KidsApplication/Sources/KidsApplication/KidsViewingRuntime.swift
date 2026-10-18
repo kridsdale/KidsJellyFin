@@ -26,6 +26,8 @@ final class KidsViewingRuntime {
     var configuration: KidsReceiverConfiguration
     var lease: ViewingLease
     let api: KidsReceiverAPI
+    private let transport: any ParentHTTPTransport
+    private let ledgerDirectory: URL
     var events: [ReceiverEvent] = []
     var ambientSessionID: UUID?
     var ambientControlID: UUID?
@@ -35,6 +37,8 @@ final class KidsViewingRuntime {
     var ambientTask: Task<Void, Never>?
     var policyFlight: (id: UUID, task: Task<Void, Error>)?
     var reportingFault = false
+    var epochRecoveryRequired = false
+    var recoveringEpoch = false
     var drainingUnconfirmedEvidence = false
     var lastFrame: (sessionID: UUID, position: Double, uptime: UInt64)?
     var accumulatedPlaying = 0.0
@@ -66,6 +70,7 @@ final class KidsViewingRuntime {
         ledgerDirectory: URL? = nil
     ) throws {
         self.configuration = configuration
+        self.transport = transport
         lease = ViewingLease(
             serverID: configuration.serverID,
             childUserID: configuration.childUserID,
@@ -86,9 +91,14 @@ final class KidsViewingRuntime {
                 "KidsPlayer/Receiver",
                 isDirectory: true
             )
+        self.ledgerDirectory = directory
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
         ledgerURL = directory.appendingPathComponent("\(configuration.deviceID.uuidString).json")
         admission = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+    }
+
+    func freshAfterRecovery() throws -> KidsViewingRuntime {
+        try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: ledgerDirectory)
     }
 
     private struct Claims: Codable { let sessionID: UUID
@@ -326,6 +336,7 @@ extension KidsAppModel {
     }
 
     func synchronizeViewingPolicy(_ runtime: KidsViewingRuntime) async throws {
+        guard !runtime.recoveringEpoch else { throw KidsContractError.denied }
         if let flight = runtime.policyFlight {
             defer {
                 // A joiner can resume before the original caller's defer.
@@ -384,6 +395,7 @@ extension KidsAppModel {
                 // integrity/idempotency conflicts remain queued and fail closed.
             } catch let conflict as ReceiverEventConflict {
                 runtime.reportingFault = true
+                noteViewingEpochConflict(conflict.code, runtime: runtime)
                 throw conflict
             } catch ParentControlError.malformedResponse {
                 runtime.reportingFault = true

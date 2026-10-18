@@ -45,6 +45,28 @@ An authenticated `enforcementEnabled:false` plus correlated release may deactiva
 an omitted field never deactivates. A grown-up can explicitly unpair using the PIN.
 Token replacement preserves the activation marker and any completed-control latch.
 
+### Explicit recovery after a verified server epoch change
+
+Old committed requests can be permanently invalid after a reviewed server restore.
+They are never automatically discarded as staleness. Only structured
+`command_epoch_changed` on a scoped event, intent or surrender enables a recovery
+action, and that action additionally requires an unlocked parent PIN and matching
+server/child binding. Other integrity, build, authentication and network failures
+cannot enable it. The backend's narrow cross-epoch subject proof remains part of
+its final source verification; ordinary token replacement is not an epoch reset.
+
+The parent action holds/stops transport, drains/cancels the current policy flight,
+and saves the complete captured mutation state and queued event values to a new
+private archive off RAID. File and directory synchronization precede clearing the
+retry slots; a failed write/sync retains the old state and the hold. Archives contain
+no token or cached policy/permission, are never replayed as authority and are not
+automatically exported or deleted. Recovery creates a fresh runtime instance to
+fence late command/monitor callbacks. Activation, remembered required mode and the
+completed-control latch are copied unchanged. The player remains stopped and held
+until fresh server policy; archival changes no server accounting and grants no
+refund, release or playback. Restart/repair of the backend and issuance of fresh
+credentials/readiness remain separate operator actions.
+
 The receiver now captures the built `KidsEvidenceImplementationRevision` once per
 runtime and sends its validated64-lowercase-hex value in `X-Kids-Client-Build` on
 policy, event, intent and surrender requests. The PIN-protected pairing screen
@@ -554,7 +576,7 @@ Local checks on 2026-10-17:
 | KidsViewingControl pure policy tests | 22 passed |
 | KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
-| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 51 passed |
+| KidsApplicationBoundaryTests, fake hosts/controllers on tvOS Simulator | 56 passed |
 | KidsPlaybackSession lifecycle/passive observations/neutral resume admission | 21 passed |
 | VLCPlaybackOwnershipTests, fake native engine on tvOS Simulator | 21 passed |
 | Parent iPhone model lifecycle, actual sources in isolated macOS harness | 9 passed |
@@ -595,8 +617,8 @@ durability, corrupt/foreign journal rejection and remote Resume expiry/ACK prove
 Source fingerprints identify these builds; they do not certify a runtime budget trial.
 After the final source changes and formatting, the built TV app's
 `KidsEvidenceImplementationRevision` matches source SHA-256
-`47e7f99fd2f940be797890f5f3d22512656b2659a7275393af393ff3fde5dcda`.
-The build-declaration integration now passes all51 application tests and adds protocol
+`1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
+The build-declaration integration and explicit epoch recovery now pass all56 application tests and add protocol
 coverage for all four receiver routes, unchanged frozen bodies and rejection of
 uppercase, malformed-length, nonhex and CRLF header values.
 The additional build-refusal case injects structured501 without committing an
@@ -604,7 +626,15 @@ intent. It verifies a held player, retained original journal action across resta
 byte-identical retries and exact retirement before an allocating GET once the
 synthetic transport's verification gate becomes available. No build refusal is
 treated as permission to discard state or start frames. This is a fake-transport
-client lifecycle test; final real-backend fixture replay is still pending.
+client lifecycle test; freezing the candidate backend replay still awaits its final
+source checkpoint.
+Five further recovery cases verify preserved pending mutation and report values,
+owner-only durable archives, failed-write retention, locked-parent denial,
+unchanged enforcement configuration, fresh runtime identity and rejection of
+non-epoch integrity faults. The first run exposed Foundation's inability to open
+the directory through FileHandle; the final run uses the explicit Darwin directory
+descriptor/fsync operation and passes. The package audit declares that SDK import
+for the application-owned private journal; no dependency edge or library owner changed.
 The shared-flight regression ensures a completed refresh is retired before a newly
 staged intent must be sent. A further readiness-loss test holds a granted resume
 before transport and preserves the earlier observed generation for terminal evidence;

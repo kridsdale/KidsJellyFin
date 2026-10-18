@@ -143,6 +143,7 @@ extension KidsAppModel {
                     itemID: request.itemID
                 )
             } catch let conflict as ReceiverMutationConflict {
+                noteViewingEpochConflict(conflict.code, runtime: runtime)
                 if conflict.isDefiniteIntentRefusal {
                     try runtime.admission.rejectUncommittedIntent(request.commandID)
                 } else {
@@ -154,12 +155,17 @@ extension KidsAppModel {
             try runtime.admission.acknowledgeIntent(request.commandID)
         }
         if let request = runtime.admission.surrender {
-            try await runtime.api.surrenderPlayback(
-                commandID: request.commandID,
-                playbackIntentID: request.intentID,
-                playbackSessionID: request.sessionID,
-                itemID: request.itemID
-            )
+            do {
+                try await runtime.api.surrenderPlayback(
+                    commandID: request.commandID,
+                    playbackIntentID: request.intentID,
+                    playbackSessionID: request.sessionID,
+                    itemID: request.itemID
+                )
+            } catch let conflict as ReceiverMutationConflict {
+                noteViewingEpochConflict(conflict.code, runtime: runtime)
+                throw conflict
+            }
             guard viewingRuntime === runtime, !Task.isCancelled else { throw CancellationError() }
             try runtime.admission.acknowledgeSurrender(request.commandID)
             if runtime.admittedIntentID == request.intentID {

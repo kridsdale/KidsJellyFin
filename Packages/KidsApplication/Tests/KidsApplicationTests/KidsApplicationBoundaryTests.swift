@@ -217,6 +217,8 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         var loseIntentOnce: Bool
         var holdGrant: Bool
         var buildVerified = true
+        var intentConflict: String?
+        var eventConflict: String?
         let grantEntered = AsyncStream<Void>.makeStream()
         var grantContinuation: CheckedContinuation<Void, Never>?
 
@@ -249,9 +251,23 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             buildVerified = verified
         }
 
+        func setConflict(_ code: String?, events: Bool = false) {
+            if events {
+                eventConflict = code
+            } else {
+                intentConflict = code
+            }
+        }
+
         func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             requests.append(request)
             let path = try XCTUnwrap(request.url?.lastPathComponent)
+            if let code = path == "events" ? eventConflict : (path == "playback-intents" ? intentConflict : nil) {
+                return try (
+                    JSONSerialization.data(withJSONObject: ["error": code]),
+                    XCTUnwrap(HTTPURLResponse(url: XCTUnwrap(request.url), statusCode: 409, httpVersion: nil, headerFields: nil))
+                )
+            }
             if path == "playback-intents", !buildVerified {
                 return try (
                     Data(#"{"error":"receiver_build_unverified","message":"Operator verification required"}"#.utf8),
@@ -716,6 +732,147 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         try corrupt.write(to: url)
         XCTAssertThrowsError(try KidsAdmissionJournal(configuration: configuration, directory: directory))
         XCTAssertEqual(try Data(contentsOf: url), corrupt)
+    }
+
+    func testEpochArchivePreservesPendingActionsAndEvidenceBeforeClearingRetrySlots() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        let id = UUID(), session = UUID().uuidString
+        try journal.stage(.init(commandID: id, expectedRevision: 2, sessionID: session, itemID: "movie"))
+        try journal.abandon(id)
+        let surrender = try XCTUnwrap(journal.surrender)
+        let report = ReceiverEvent(
+            deviceID: configuration.deviceID.uuidString,
+            childUserID: configuration.childUserID,
+            policyRevision: 2,
+            playbackSessionID: session,
+            itemID: "movie",
+            kind: .progress,
+            positionSeconds: 4,
+            elapsedPlayingSeconds: 1
+        )
+        let archive = try journal.archiveForEpochRecovery(events: [report])
+        let data = try Data(contentsOf: archive)
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        XCTAssertEqual(object["reason"] as? String, "command_epoch_changed")
+        let saved = try XCTUnwrap(object["journal"] as? [String: Any])
+        let intent = try XCTUnwrap(saved["intent"] as? [String: Any])
+        XCTAssertEqual(intent["commandID"] as? String, id.uuidString)
+        let savedSurrender = try XCTUnwrap(saved["surrender"] as? [String: Any])
+        XCTAssertEqual(savedSurrender["commandID"] as? String, surrender.commandID.uuidString)
+        let events = try JSONSerialization.data(withJSONObject: XCTUnwrap(object["events"]))
+        XCTAssertEqual(try JSONDecoder().decode([ReceiverEvent].self, from: events), [report])
+        let text = try XCTUnwrap(String(data: data, encoding: .utf8))
+        XCTAssertFalse(text.contains(configuration.token))
+        XCTAssertFalse(text.contains("validUntil"))
+        XCTAssertFalse(text.contains("viewingAllowed"))
+        let permissions = try FileManager.default.attributesOfItem(atPath: archive.path)[.posixPermissions] as? NSNumber
+        XCTAssertEqual(permissions?.intValue, 0o600)
+        XCTAssertNil(journal.intent)
+        let restarted = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        XCTAssertNil(restarted.intent)
+        XCTAssertNil(restarted.surrender)
+    }
+
+    func testFailedEpochArchiveLeavesOriginalPendingActionIntact() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        let id = UUID()
+        try journal.stage(.init(commandID: id, expectedRevision: 2, sessionID: "controller", itemID: "movie"))
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+        let file = try XCTUnwrap(files.allObjects.compactMap { $0 as? URL }.first { $0.pathExtension == "json" })
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        XCTAssertThrowsError(try journal.archiveForEpochRecovery(events: []))
+        XCTAssertEqual(journal.intent?.commandID, id)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        let restarted = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        XCTAssertEqual(restarted.intent?.commandID, id)
+    }
+
+    func testEpochMutationRecoveryRequiresParentUnlockAndPreservesEnforcementConfiguration() async throws {
+        let (model, runtime, transport, directory) = try await grantHarness()
+        await transport.setConflict("command_epoch_changed")
+        let driver = AdmissionDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        do {
+            try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+            XCTFail("An old epoch cannot acquire authority")
+        } catch { XCTAssertEqual(error as? ReceiverMutationConflict, ReceiverMutationConflict(code: "command_epoch_changed")) }
+        XCTAssertTrue(runtime.epochRecoveryRequired)
+        let oldID = try XCTUnwrap(runtime.admission.intent?.commandID)
+        do { try await model.archiveViewingRecovery()
+            XCTFail("A parent unlock is required")
+        } catch {}
+        XCTAssertEqual(runtime.admission.intent?.commandID, oldID)
+        let configuration = runtime.configuration
+        XCTAssertTrue(configuration.activated && configuration.requiresPlaybackGrants)
+        XCTAssertTrue(model.gate.attempt(correct: true, now: .now))
+        XCTAssertTrue(model.canArchiveViewingRecovery)
+        try await model.archiveViewingRecovery()
+        XCTAssertFalse(model.viewingRuntime === runtime)
+        XCTAssertEqual(model.viewingRuntime?.configuration, configuration)
+        XCTAssertEqual(runtime.configuration, configuration)
+        XCTAssertNil(runtime.admission.intent)
+        XCTAssertTrue(runtime.events.isEmpty)
+        XCTAssertTrue(model.viewingHeld)
+        XCTAssertNil(runtime.lease.policy)
+        XCTAssertNil(runtime.admittedIntentID)
+        XCTAssertFalse(model.canArchiveViewingRecovery)
+        XCTAssertEqual(driver.starts, 0)
+        XCTAssertEqual(driver.stops, 1)
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+        XCTAssertEqual(files.allObjects.compactMap { $0 as? URL }.filter { $0.lastPathComponent.hasPrefix("epoch-recovery-") }.count, 1)
+    }
+
+    func testEpochEventRecoveryArchivesOriginalReportWithoutAcknowledgingIt() async throws {
+        let (model, runtime, transport, directory) = try await grantHarness()
+        let event = ReceiverEvent(
+            deviceID: runtime.configuration.deviceID.uuidString,
+            childUserID: runtime.configuration.childUserID,
+            policyRevision: 1,
+            playbackSessionID: "old-controller",
+            itemID: "movie",
+            kind: .progress,
+            positionSeconds: 5,
+            elapsedPlayingSeconds: 2
+        )
+        runtime.events = [event]
+        await transport.setConflict("command_epoch_changed", events: true)
+        do { try await model.synchronizeViewingPolicy(runtime)
+            XCTFail("Old evidence remains unacknowledged")
+        } catch { XCTAssertEqual(error as? ReceiverEventConflict, ReceiverEventConflict(code: "command_epoch_changed")) }
+        XCTAssertEqual(runtime.events, [event])
+        XCTAssertTrue(model.gate.attempt(correct: true, now: .now))
+        try await model.archiveViewingRecovery()
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+        let archive = try XCTUnwrap(files.allObjects.compactMap { $0 as? URL }.first { $0.lastPathComponent.hasPrefix("epoch-recovery-") })
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: archive)) as? [String: Any])
+        let data = try JSONSerialization.data(withJSONObject: XCTUnwrap(object["events"]))
+        XCTAssertEqual(try JSONDecoder().decode([ReceiverEvent].self, from: data), [event])
+        XCTAssertTrue(runtime.events.isEmpty && model.viewingHeld)
+    }
+
+    func testOtherIntegrityFaultsCannotEnableEpochArchival() async throws {
+        let (model, runtime, transport, _) = try await grantHarness()
+        await transport.setConflict("idempotency_conflict")
+        let playback = controller(
+            KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"),
+            driver: AdmissionDriver(),
+            model: model
+        )
+        do { try await model.admitViewingPlayback(playback, binding: XCTUnwrap(model.binding))
+            XCTFail("Integrity conflict must hold")
+        } catch {}
+        let id = try XCTUnwrap(runtime.admission.intent?.commandID)
+        XCTAssertTrue(model.gate.attempt(correct: true, now: .now))
+        XCTAssertFalse(model.canArchiveViewingRecovery)
+        do { try await model.archiveViewingRecovery()
+            XCTFail("Only a structured epoch fault permits this recovery")
+        } catch {}
+        XCTAssertEqual(runtime.admission.intent?.commandID, id)
+        await model.abandonPreparedViewing(playback)
     }
 
     func testAdmissionDrainRetiresCompletedSharedFlightBeforeSendingStagedIntent() async throws {

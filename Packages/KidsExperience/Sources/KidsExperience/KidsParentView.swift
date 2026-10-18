@@ -108,6 +108,22 @@ struct KidsParentView: View {
                             Text("Client build is unavailable. Commissioning requires a stamped build.").font(.caption)
                         }
                         Text(model.viewingControlStatus).foregroundStyle(.secondary)
+                        if model.canArchiveViewingRecovery {
+                            Text(
+                                "After server recovery, save this TV's old control requests before reconnecting. Viewing stays held until fresh permission arrives."
+                            )
+                            .font(.footnote)
+                            KidsParentAction("Archive old control requests") {
+                                Task {
+                                    do {
+                                        try await model.archiveViewingRecovery()
+                                        message = "Old requests were preserved. Check this TV's receiver token and the server's setup."
+                                    } catch {
+                                        message = "Recovery could not finish. Old requests were retained and viewing stays held."
+                                    }
+                                }
+                            }
+                        }
                         TextField("Parent service address", text: $parentServiceURL).textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                         SecureField("Device-scoped receiver token", text: $receiverToken).textInputAutocapitalization(.never)

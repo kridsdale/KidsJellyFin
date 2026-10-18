@@ -11,8 +11,8 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 - Admission base commit: `0524f3ba` on `feature/kids-release-candidate`, local only;
   the subsequent build-declaration source is validated by the digest below.
 - Built/source implementation digest:
-  `47e7f99fd2f940be797890f5f3d22512656b2659a7275393af393ff3fde5dcda`.
-- Synthetic checks: application51, protocol64, policy22, playback-session21 and
+  `1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
+- Synthetic checks: application56, protocol64, policy22, playback-session21 and
   VLC ownership21 tests passed. The55-library dependency audit passed.
 - Backend final reader/startup checkpoint and rollout commands: awaiting the
   server agent. Its earlier source checkpoint `0e239f5` reported425 tests.
@@ -88,6 +88,7 @@ live off RAID. No library scan or import is needed for the initial control trial
 | Readiness lost again | Lose readiness during the resume grant request | No transport resume and no new-generation usage claim; terminal evidence retains its observed provenance |
 | Lease/outage expiry | Block only the test client's control connection | Monotonic expiry holds playback; stale policy/unknown POST is not authority; past uncertainty is retained |
 | Client/service restart | Restart only the isolated app/new control process | No autoplay from persisted mutation state; unknown intent resolves/surrenders before allocating GET; activation/accounting survive |
+| Reviewed server restore | Use the backend's reviewed isolated recovery, then fresh same-scope credentials | Exact old-epoch proof produces the structured recovery fault; parent PIN is required to archive old pending actions/reports; write failure retains them; fresh runtime has no grant; backend spend/uncertainty and local enforcement markers remain intact |
 | Two receivers | After separate approval, use two isolated TV identities for one child | Shared allowance is conserved; own reservation is not double-counted; one surrender cannot revoke/refund the other's intent |
 | Civil reset/restore | Use the backend's isolated clock/restore test facility | Reset clamps reservation lifetime; restoring old state does not recreate spendable authority or refund unknown past |
 
