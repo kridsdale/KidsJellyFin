@@ -18,11 +18,19 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 - Current Debug and optimized Release tvOS simulator builds both passed and
   independently match the source digest. No signed-device install or live trial
   is implied by those build results.
-- Backend final reader/startup checkpoint and rollout commands: awaiting the
-  server agent. Its earlier source checkpoint `0e239f5` reported425 tests.
-- Operator registry and isolated trial launcher source now exist. The received
-  candidate build transaction passes native replay; final combined source/entrypoint
-  tests and checkpoint confirmation remain required before the live approval step.
+- Backend runtime source is frozen at `c799d2d62d408d01be5cdd745fa2ec4b5b673213`,
+  package SHA-256 `e6f44633ee7035e19c02cefee8b86e66abf6653a5937f8f6259278c88d0df17f`.
+  The server reports492 distinct joined tests with no failures/errors/skips and one
+  separately enforced native-policy startup/drain test. The600,000-row storage
+  fixture passes. This is uninstalled source, not receiver runtime acceptance.
+- The4,580-byte build transaction is frozen unchanged and passes native replay.
+  Concrete deployment preparation remains engineering work: private per-trial
+  config/SB profile, immutable release/root-staging manifest and guarded production/
+  monitor/rollback package. The committed backend procedure alone is not that package.
+- One offline preview UI check on a fresh TV simulator observed its real vendor
+  installation ID and this build. Installed bundle identity/build and cloud sync
+  `NO` were cross-checked separately; the simulator is shut down. The private
+  identity receipt is for staging only, never receiver-runtime acceptance.
 - Deployment, scoped credentials, receiver activation and household playback:
   not performed by this work. Physical-device/iCloud trials remain deferred.
 

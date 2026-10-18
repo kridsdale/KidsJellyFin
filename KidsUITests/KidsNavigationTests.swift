@@ -6,6 +6,7 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import Foundation
 import XCTest
 
 @MainActor
@@ -168,6 +169,42 @@ final class KidsNavigationTests: XCTestCase {
         XCTAssertTrue(parents.waitForExistence(timeout: 5))
         selectParents(parents)
         XCTAssertTrue(app.secureTextFields["kids.parent.pin"].waitForExistence(timeout: 5))
+    }
+
+    func testOfflinePreviewExposesReceiverIdentityForPreparation() throws {
+        launch("shows")
+        defer { app.terminate() }
+        unlockParents()
+        XCTAssertTrue(app.buttons["kids.parent.resetall"].waitForExistence(timeout: 5))
+        let identity = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "TV installation ID: ")).firstMatch
+        let build = app.staticTexts.matching(NSPredicate(format: "label BEGINSWITH %@", "Client build: ")).firstMatch
+        for _ in 0 ..< 80 {
+            if identity.exists, build.exists, app.frame.intersects(identity.frame), app.frame.intersects(build.frame) {
+                break
+            }
+            XCUIRemote.shared.press(.down)
+        }
+        XCTAssertTrue(identity.exists && build.exists)
+        let rawID = identity.label.replacingOccurrences(of: "TV installation ID: ", with: "")
+        let device = try XCTUnwrap(UUID(uuidString: rawID))
+        let revision = build.label.replacingOccurrences(of: "Client build: ", with: "")
+        XCTAssertEqual(revision.utf8.count, 64)
+        XCTAssertTrue(revision.utf8.allSatisfy { (48 ... 57).contains($0) || (97 ... 102).contains($0) })
+        let record: [String: Any] = [
+            "scope": "offline-preview-identity-only",
+            "installationID": device.uuidString,
+            "clientBuildSHA256": revision,
+            "bundleID": "com.kridsdale.JellyfinPlayer",
+            "actualReceiverTrial": false,
+            "credentialIssued": false
+        ]
+        let data = try JSONSerialization.data(withJSONObject: record, options: .sortedKeys)
+        let attachment = XCTAttachment(data: data, uniformTypeIdentifier: "public.json")
+        attachment.name = "offline-receiver-identity"
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        print("KIDS_OFFLINE_PREPARATION_IDENTITY " + String(decoding: data, as: UTF8.self))
+        capture("offline-parent-pairing-identity")
     }
 
     private func focusFormAction(_ identifier: String) {

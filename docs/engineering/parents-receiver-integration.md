@@ -58,7 +58,7 @@ They are never automatically discarded as staleness. Only structured
 action, and that action additionally requires an unlocked parent PIN and matching
 server/child binding. Other integrity, build, authentication and network failures
 cannot enable it. The backend's narrow cross-epoch subject proof remains part of
-its final source verification; ordinary token replacement is not an epoch reset.
+its frozen source checks; ordinary token replacement is not an epoch reset.
 
 The parent action holds/stops transport, drains/cancels the current policy flight,
 and saves the complete captured mutation state and queued event values to a new
@@ -80,9 +80,9 @@ Missing/malformed stamps emit no build header. This is a build declaration, not
 cryptographic attestation, operational readiness or proof of frames. The backend's
 operator-created commission record must independently pin the exact scope, receiver
 credential, contracts, build and finite validity window. Header receipt must never
-create/promote that record. Backend registry/launcher final verification remains in
-progress. The received candidate HTTP fixture confirms `X-Kids-Client-Build` and
-passes native replay; final backend checkpoint confirmation is still required.
+create/promote that record. Backend runtime source is now frozen at `c799d2d6`;
+the exact HTTP fixture confirms `X-Kids-Client-Build` and passes native replay.
+Deployment packages and actual receiver/feature acceptance remain separate work.
 
 The agreed denial is structured501 `receiver_build_unverified` for new authority.
 Exact committed receipt replay remains inert200 before that check. Known historical
@@ -595,7 +595,7 @@ or use an unsafe immutable-database assumption. The server's sanitized receipt i
 Its10.047-second source check issued no parent credentials, started no new listener
 and requested no playback. Reader snapshot readiness is separate from commissioned
 receiver/feature readiness, which remains off. Final backend checkpoint verification
-is still pending.
+is complete at the frozen source checkpoint below; deployment/acceptance remains pending.
 
 Local checks on 2026-10-17:
 
@@ -659,8 +659,7 @@ intent. It verifies a held player, retained original journal action across resta
 byte-identical retries and exact retirement before an allocating GET once the
 synthetic transport's verification gate becomes available. No build refusal is
 treated as permission to discard state or start frames. This is a fake-transport
-client lifecycle test; freezing the candidate backend replay still awaits its final
-source checkpoint.
+client lifecycle test; the exact backend replay is now frozen under `c799d2d6`.
 Five further recovery cases verify preserved pending mutation and report values,
 owner-only durable archives, failed-write retention, locked-parent denial,
 unchanged enforcement configuration, fresh runtime identity and rejection of
@@ -681,7 +680,7 @@ userdata. Metadata enrichment preserves used5/unknown30/reserved0; it never refu
 quota. The sender reports425 joined source tests at checkpoint `0e239f5`. These are
 server-executed synthetic tests, not installed service or family playback evidence.
 
-The received `receiver-build-transaction.json` **candidate** is4,580 bytes, SHA-256
+The frozen `receiver-build-transaction.json` is4,580 bytes, SHA-256
 `99f3b54b8d14b231194835da8c7f1ccdb3a3248613162adee4f0f0fdc7be6c93`.
 The sender generated it with actual isolated loopback HTTP/auth/SQLite and a
 fabricated trial-only operator record, and reports11 registry tests passed. Native
@@ -692,9 +691,29 @@ used5/uncertain25/reserved0; it does not establish an actual household quota res
 The historical-progress response is present, but its request is not included and
 is not replayed here. Native declarations use synthetic digest values; this replay
 does not execute the backend registry or establish an installed client identity.
-The backend's final full join must confirm these candidate bytes unchanged or send
-a successor before freezing commissioning evidence. No temporary operator proof
+The backend's final checkpoint confirmed these bytes unchanged. No temporary operator proof
 envelope, real token or production commissioning record was imported.
+
+Final backend source commit is `c799d2d62d408d01be5cdd745fa2ec4b5b673213`, whole runtime
+package SHA-256 `e6f44633ee7035e19c02cefee8b86e66abf6653a5937f8f6259278c88d0df17f`.
+The private source checkpoint SHA-256 is
+`5e1aecab86b6b1910e54feedbe4319cee4cad41938677c0d8e8593b7280a1394`, covering287
+tracked files. The final report records492 distinct joined tests, zero failures/
+errors/skips,50.621 seconds, plus a separately enforced native-policy startup/drain
+test (one pass,0.419 seconds). That test cannot be nested under macOS sandbox_apply;
+it was run separately rather than skipped or weakening the policy. The600,000-row
+capacity fixture passed integrity/reserve checks at193,527,808 bytes peak. These
+are server-executed source/native tests, not an installed listener or media trial.
+
+The fresh simulator offline-preview identity check passed separately (one UI test).
+It read the actual installation UUID/build from protected settings using fake
+preview data/PIN, then terminated. The installed bundle/build were independently
+verified and cloud sync was `NO`; the simulator was shut down. Its private receipt
+contains `actualReceiverTrial:false` and no credentials. This identifies the proposed
+receiver for staging; it does not verify server binding, login, playback or controls.
+The public test source contains no actual device UUID. The corresponding private
+trial config, immutable payload/SB/root-staging request and production/monitor/
+rollback package still need preparation before asking to execute live changes.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

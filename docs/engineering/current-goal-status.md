@@ -17,10 +17,14 @@ included, and no TestFlight/manual release was triggered by this feature-branch 
 
 The client also declares its embedded build in receiver HTTP headers and protected
 pairing settings, and provides explicit PIN-protected archival after a verified
-server epoch fault without granting playback or resetting accounting. The backend agent is finishing exact approved-library readers,
-startup/maintenance locks and final verification of the operator commission
-registry/trial launcher. Its candidate transaction fixture passes native replay;
-final backend checkpoint confirmation is pending. Deployment, provisioning, isolated receiver commissioning
+server epoch fault without granting playback or resetting accounting. Backend runtime
+source is frozen at `c799d2d6`:492 joined tests plus one separate native-policy test
+pass, and the unchanged build fixture passes native replay. All4,619 approved file
+parts reconcile to4,508 playable items with zero missing/unexpected entries.
+One fresh-simulator offline UI check supplied actual installation/build identity
+only. The backend agent is preparing concrete trial/private-config/root-staging and
+production/monitor/rollback packages; the existing procedure is not a staged installer.
+Deployment, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete
 ordered test scope and rollback are in [parents-commissioning.md](parents-commissioning.md).
