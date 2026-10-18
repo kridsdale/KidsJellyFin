@@ -12,6 +12,25 @@ publication, not an App Store upload, service deployment or receiver activation.
 
 ## What changed
 
+### Ambient random start — client checkpoint `de633919`
+
+New ambient sessions, including EOF loop restarts, now choose a fresh uniform offset
+in `[10 seconds, item.runtime)` through `AmbientPlaybackStart`. The first ten seconds
+and EOF are excluded. The offset is passed into the existing initial-position
+factory path; an ordinary pause/resume keeps its current position. Invalid, missing
+or intro-only duration fails to the quiet static fallback instead of starting at
+zero. Ambient checkpoint/history writes remain disabled.
+
+All26 viewing-policy tests (four new cases),56 application tests and the55-library
+audit pass. Current Debug and optimized Release TV builds both pass and embed
+`4001fdd1d6194032a378ddf017d24705dfd51bfd5afa7fb568b943c6dcc2ab32`.
+This is a new client identity; the original staged declaration remains `1c06…` and
+must not commission this changed build. Actual playback of the selected ten-hour
+video and native seek behavior are unobserved. Its single-video acquisition path
+also remains server engineering work; no media was imported.
+
+### Receiver composition
+
 The same Xcode project now has a native iPhone parent target and an opt-in tvOS
 receiver. The receiver connects parent policy to the existing kids catalog, queue,
 player lifecycle and PIN-protected settings. It never changes media files, library

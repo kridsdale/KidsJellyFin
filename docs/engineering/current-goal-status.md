@@ -1,16 +1,24 @@
 # Current engineering goal disposition
 
+The next human-requested goal is [automatic LAN server discovery in both client
+apps](queued-goals.md), queued after the active Parents integration goal.
+
 ## Active Parents delivery goal — 2026-10-17
 
 The current goal is to complete the Parents iPhone app, its tvOS receiver and the
 backend integration, coordinating with **Make YT Feature**. It is not complete.
 Client admission base `0524f3ba` and its subsequent build-declaration/phone fixes
-wire durable explicit playback admission. Current checks pass56 application,
-64 protocol,22 policy,21 session,21 VLC ownership and9 parent-model synthetic tests;
-the55-library boundary audit and built/source fingerprint match also pass.
+wire durable explicit playback admission. Ambient random starts are published in
+`de633919`. Current checks pass56 application and26 policy tests; unchanged earlier
+checks pass64 protocol,21 session,21 VLC ownership and9 parent-model synthetic tests.
+The55-library boundary audit also passes.
 These source checks do not establish deployed parental enforcement or live playback.
-Current Debug and optimized Release TV simulator builds both pass, and each built
-fingerprint matches source `1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
+The updated Debug TV build/test passes for source
+`4001fdd1d6194032a378ddf017d24705dfd51bfd5afa7fb568b943c6dcc2ab32`;
+its optimized Release build also passes. Both embedded fingerprints match that
+current source. The earlier Debug/Release checkpoint
+`1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`
+remains the immutable client declaration in the staged trial configuration.
 The18 tested client commits through `86c3d963` are published on the existing GitHub
 feature branch; local/remote heads were verified equal. Workflow files were not
 included, and no TestFlight/manual release was triggered by this feature-branch push.
@@ -21,22 +29,30 @@ server epoch fault without granting playback or resetting accounting. Backend ru
 source is frozen at `c799d2d6`:492 joined tests plus one separate native-policy test
 pass, and the unchanged build fixture passes native replay. All4,619 approved file
 parts reconcile to4,508 playable items with zero missing/unexpected entries.
-One fresh-simulator offline UI check supplied actual installation/build identity
-only. A concrete source/private-config staging packet is now frozen under backend
+An offline UI identity check passed again for the current build, retaining the
+same installation identity. Both private receipts remain separate, and the
+isolated simulator is shut down. These checks establish identity only.
+A concrete source/private-config staging packet is now frozen under backend
 packaging commit `91c80e66`;18 targeted packaging tests pass. The prepared verifier
-and exact proposed kernel policy checks pass for RAID/family write denial. The real
-trial directory does not yet exist, so its positive write permission remains
-unverified. No privileged copy or config staging has occurred. Approval was requested
-for those two explicit scopes, without service start or credential issuance.
-Production monitor/SRE orchestration remains engineering work; the tested file
-transaction component is not an end-to-end native installer.
-The production-flow source reached27 targeted passing tests before a handoff review
-identified a further gap: isolated-trial receipts cannot validate a different
-production credential. A guarded same-state/same-token handoff is now being
-implemented. It must preserve safety history, prevent a second active authority and
-keep enforcement off until explicit production commissioning. Those new changes
-are not covered by the earlier27-test result and have not moved any live state.
-Deployment, provisioning, isolated receiver commissioning
+and exact proposed kernel policy checks pass for RAID/family write denial. The human
+approved code/private-config staging and ran the administrator command. The server
+agent independently verified all77 copied files and exact ownership/modes, then
+staged the private configuration/profile. Actual kernel queries now pass5 trial
+write allowances,10 RAID write denials,2 RAID read denials and5 family write denials,
+with zero write probes. No database initialization or service start occurred.
+The server reports a committed production-flow and same-state/same-token handoff
+checkpoint with65 focused tests passing, a separate native check covering27
+phase/recovery policies and a read-only117-file dependency-closure check. Exact
+source pins are awaiting the concise handoff. These checks are source preparation,
+not a native installation trial. The handoff preserves safety history and token
+identity, prevents a second active authority and keeps enforcement off pending
+explicit production commissioning. New credentials require new actual trials;
+historical proof scope cannot be rewritten. No live state moved.
+The selected ten-hour birds URL is a standalone video. The existing importer only
+accepts real playlists, so a separate source-only admission extension through the
+same immutable review pipeline is required. It is not yet implemented or deployed;
+no download, import or fabricated playlist/item ID is authorized by staging.
+Service installation/start, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete
 ordered test scope and rollback are in [parents-commissioning.md](parents-commissioning.md).

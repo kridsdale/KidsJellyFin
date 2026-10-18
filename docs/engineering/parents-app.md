@@ -159,6 +159,24 @@ through the approved cache workflow. Store it as an explicit ambient item, outsi
 normal kids shuffle; use its Jellyfin item ID, never an expiring YouTube stream URL.
 If it is unavailable at deadline, enforce the viewing stop with a calm static screen.
 
+The parent selected [this birds video](https://www.youtube.com/watch?v=jazjtv5tg28)
+and described it as ten hours long. Acquisition/review and a real approved Jellyfin
+item ID are still pending; the staged configuration retains its original empty
+ambient selection. Selecting the URL did not download or import it.
+The server confirmed that the existing importer requires a real playlist ID and
+does not admit this standalone video URL. A separately tested single-video source
+extension through the same immutable review workflow is now required; no playlist
+ID or Jellyfin item ID may be invented to bypass that gap.
+
+Every newly prepared ambient session, including an EOF loop restart, now draws a
+fresh uniform start in `[10 seconds, actual reported duration)`. The start uses the
+existing initial-position playback path and never watched/resume history. Ordinary
+pause/resume preserves its current position. Missing/nonfinite duration or duration
+at most10 seconds fails to the quiet static fallback rather than starting at zero.
+Four new deterministic policy tests cover bounds, invalid durations, repeated draws
+and fixed-seed whole-timeline distribution. All26 policy and56 application tests
+pass; actual selected-video playback/seek behavior remains unobserved.
+
 ## Existing server integration
 
 Verified unauthenticated reads from this Mac:

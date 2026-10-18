@@ -11,18 +11,24 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 - Admission base commit: `0524f3ba`; client recovery checkpoint `86c3d963` is
   published on `kridsdale/KidsJellyFin`, branch `feature/kids-release-candidate`.
   Source publication does not deploy or commission the parent service.
-- Built/source implementation digest:
+- Original staged client declaration (earlier Debug/Release checkpoint):
   `1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
-- Synthetic checks: application56, protocol64, policy22, playback-session21 and
+- Current source after `de633919`:
+  `4001fdd1d6194032a378ddf017d24705dfd51bfd5afa7fb568b943c6dcc2ab32`.
+  Application56 and policy26 tests pass for the random ambient-start change; Debug
+  build/test and optimized Release both pass, with embedded fingerprints matching
+  current source. A matching reviewed
+  client declaration is needed before commissioning this new build.
+- Unchanged earlier synthetic checks: protocol64, playback-session21 and
   VLC ownership21 tests passed. The55-library dependency audit passed.
-- Current Debug and optimized Release tvOS simulator builds both passed and
-  independently match the source digest. No signed-device install or live trial
+- The original Debug and optimized Release tvOS simulator builds both passed and
+  independently matched the staged declaration. No signed-device install or live trial
   is implied by those build results.
 - Backend runtime source is frozen at `c799d2d62d408d01be5cdd745fa2ec4b5b673213`,
   package SHA-256 `e6f44633ee7035e19c02cefee8b86e66abf6653a5937f8f6259278c88d0df17f`.
   The server reports492 distinct joined tests with no failures/errors/skips and one
   separately enforced native-policy startup/drain test. The600,000-row storage
-  fixture passes. This is uninstalled source, not receiver runtime acceptance.
+  fixture passes. This source is staged only, not serving or receiver-runtime accepted.
 - The4,580-byte build transaction is frozen unchanged and passes native replay.
   Backend packaging commit `91c80e66` supplies a concrete code/private-config
   staging packet, with18 targeted packaging tests passing. Its payload manifest is
@@ -30,17 +36,25 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
   its sanitized review hashes to
   `528ff5f70ed3dde2a4df723d375359dac052e7f8ec820c96b9be33bb8e08dc8c`.
   The candidate expires2026-10-17 at22:12:45 Pacific; changed/expired inputs refuse,
-  with no silent extension. No root source copy or private config staging has run.
-  The exact proposed profile compiles and denies RAID reads/writes and family-root
-  writes. Positive write permission for the real trial directory is unverified
-  because it does not exist; recheck after separately approved config staging.
-  Production monitor/SRE orchestration remains engineering work, beyond the tested
-  paired-file transaction component. The current packet has no production command.
-- One offline preview UI check on a fresh TV simulator observed its real vendor
-  installation ID and this build. Installed bundle identity/build and cloud sync
-  `NO` were cross-checked separately; the simulator is shut down. The private
-  identity receipt is for staging only, never receiver-runtime acceptance.
-- Deployment, scoped credentials, receiver activation and household playback:
+  with no silent extension. The human approved both staging scopes and completed
+  the administrator source-copy command. The server independently verified all77
+  payload files, ownership and exact modes, then staged the private config/profile.
+  Actual kernel queries pass5 trial write allowances,10 RAID write denials,2 RAID
+  read denials and5 family write denials with zero write probes. No initialization,
+  database creation, service start, credentials, registry, activation or playback ran.
+  Separate production orchestration and same-state/same-token handoff source is
+  now reported committed with65 focused tests and a native check of27 execution
+  policies passing; exact source pins await the concise handoff. None of that
+  tooling has been executed against installed state. The original staged packet
+  remains unchanged and has no production command.
+- The original offline preview UI check observed the isolated installation's real
+  vendor ID and original staged build. Its installed bundle identity/build and
+  cloud sync `NO` were cross-checked separately. A second identity-only UI test
+  now passes for current source `4001…`, retaining the same installation ID; both
+  current Debug/Release built fingerprints independently match. The new private
+  receipt is separate from the preserved original. The isolated simulator is
+  confirmed shut down. Neither receipt is receiver-runtime acceptance.
+- Service start, scoped credentials, receiver activation and household playback:
   not performed by this work. Physical-device/iCloud trials remain deferred.
 
 ## Scope to approve before execution
@@ -155,12 +169,18 @@ The backend checks the current credential/scope/epoch when installing. Productio
 evidence must be created within24 hours; expiry cannot exceed created+180 days or
 the actual credential expiry (currently at most30 days).
 
-**Open handoff engineering:** proof from the isolated trial cannot be relabeled
-with a different production token ID. The backend is implementing a guarded
-same-state/same-token handoff; it is not yet a validated or executed path. That
-handoff must prevent a second active trial authority, preserve all safety history
-and credential expiry, and leave enforcement off until explicit production
-commissioning. Do not substitute a copied database or rewritten receipt scope.
+**Same-state/same-token handoff:** proof from the isolated trial cannot be relabeled
+with a different production token ID. The backend reports source and fixture
+checks for a guarded handoff that retains the same database files, safety history,
+epoch and token identity. The fixture passes the existing production readiness
+validator with enforcement off and spend preserved. No actual handoff has run.
+Its reviewed preconditions include drained/quiet control state and matched explicit
+deactivation; uncertain state stays held. The source must prevent a second active
+trial authority and preserve credential expiry. A new production envelope may
+reference only the exact original proof bytes and unchanged scope, after actual
+trials. Production commissioning and activation remain explicit separate steps.
+Do not substitute a copied database or rewritten receipt scope. A new token or
+epoch requires new actual trials.
 
 `files` contains1–64 entries, each with exactly `path`, `sha256` and `bytes`.
 Each entry names a private internal regular JSON file, at most2MiB, in the same
