@@ -26,8 +26,9 @@ audit pass. Current Debug and optimized Release TV builds both pass and embed
 `4001fdd1d6194032a378ddf017d24705dfd51bfd5afa7fb568b943c6dcc2ab32`.
 This is a new client identity; the original staged declaration remains `1c06…` and
 must not commission this changed build. Actual playback of the selected ten-hour
-video and native seek behavior are unobserved. Its single-video acquisition path
-also remains server engineering work; no media was imported.
+video and native seek behavior are unobserved. The server reports its single-video
+admission source is committed; its technical handoff awaits explicit sharing
+authorization, and reviewed rollout/acquisition remain ahead. No media was imported.
 
 ### Receiver composition
 

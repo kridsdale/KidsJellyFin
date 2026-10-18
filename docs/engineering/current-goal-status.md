@@ -48,10 +48,14 @@ not a native installation trial. The handoff preserves safety history and token
 identity, prevents a second active authority and keeps enforcement off pending
 explicit production commissioning. New credentials require new actual trials;
 historical proof scope cannot be rewritten. No live state moved.
-The selected ten-hour birds URL is a standalone video. The existing importer only
-accepts real playlists, so a separate source-only admission extension through the
-same immutable review pipeline is required. It is not yet implemented or deployed;
-no download, import or fabricated playlist/item ID is authorized by staging.
+The selected ten-hour birds URL is a standalone video. The server now reports its
+finite single-video admission additions and a separate matching trial draft are
+complete and committed. The original staged package remains unchanged; the new
+draft and source have not been deployed or executed. No download, import or
+fabricated playlist/item ID is authorized by staging. Automatic approval review
+rejected transfer of the detailed technical handoff without payload- and
+destination-specific human authorization. That sharing approval is pending;
+do not retrieve the withheld report or infer runtime approval from its status.
 Service installation/start, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete

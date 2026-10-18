@@ -163,10 +163,12 @@ The parent selected [this birds video](https://www.youtube.com/watch?v=jazjtv5tg
 and described it as ten hours long. Acquisition/review and a real approved Jellyfin
 item ID are still pending; the staged configuration retains its original empty
 ambient selection. Selecting the URL did not download or import it.
-The server confirmed that the existing importer requires a real playlist ID and
-does not admit this standalone video URL. A separately tested single-video source
-extension through the same immutable review workflow is now required; no playlist
-ID or Jellyfin item ID may be invented to bypass that gap.
+The original importer requires a real playlist ID and does not admit this
+standalone video URL. The server now reports a committed single-video extension
+through the same immutable adult review workflow and a separate matching trial
+draft. The detailed technical handoff awaits explicit sharing authorization after
+an automatic approval-review rejection. No new draft/runtime/media action has run;
+no playlist ID or Jellyfin item ID may be invented to bypass admission.
 
 Every newly prepared ambient session, including an EOF loop restart, now draws a
 fresh uniform start in `[10 seconds, actual reported duration)`. The start uses the
