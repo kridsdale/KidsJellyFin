@@ -53,8 +53,9 @@ Missing/malformed stamps emit no build header. This is a build declaration, not
 cryptographic attestation, operational readiness or proof of frames. The backend's
 operator-created commission record must independently pin the exact scope, receiver
 credential, contracts, build and finite validity window. Header receipt must never
-create/promote that record. Backend registry/launcher source and its final HTTP
-fixture remain in progress; the final fixture will resolve header spelling if needed.
+create/promote that record. Backend registry/launcher final verification remains in
+progress. The received candidate HTTP fixture confirms `X-Kids-Client-Build` and
+passes native replay; final backend checkpoint confirmation is still required.
 
 The agreed denial is structured501 `receiver_build_unverified` for new authority.
 Exact committed receipt replay remains inert200 before that check. Known historical
@@ -549,7 +550,7 @@ Local checks on 2026-10-17:
 
 | Check | Result |
 | --- | --- |
-| KidsParentControl transport/feature/fixture tests | 62 passed |
+| KidsParentControl transport/feature/fixture tests | 64 passed |
 | KidsViewingControl pure policy tests | 22 passed |
 | KidsAccounts configuration contracts | 19 passed |
 | SwiftfinCredentials namespace contracts | 9 passed |
@@ -616,6 +617,21 @@ explicitly incomplete stale/unknown intervals and subsequent independent positiv
 userdata. Metadata enrichment preserves used5/unknown30/reserved0; it never refunds
 quota. The sender reports425 joined source tests at checkpoint `0e239f5`. These are
 server-executed synthetic tests, not installed service or family playback evidence.
+
+The received `receiver-build-transaction.json` **candidate** is4,580 bytes, SHA-256
+`99f3b54b8d14b231194835da8c7f1ccdb3a3248613162adee4f0f0fdc7be6c93`.
+The sender generated it with actual isolated loopback HTTP/auth/SQLite and a
+fabricated trial-only operator record, and reports11 registry tests passed. Native
+replay verifies501 missing/wrong/unregistered/decommissioned policy/intent refusals,
+ordinary committed-intent/event retry receipts, safe surrender and unchanged body/
+idempotency bytes across declared-build changes. The accounting snapshot retains
+used5/uncertain25/reserved0; it does not establish an actual household quota result.
+The historical-progress response is present, but its request is not included and
+is not replayed here. Native declarations use synthetic digest values; this replay
+does not execute the backend registry or establish an installed client identity.
+The backend's final full join must confirm these candidate bytes unchanged or send
+a successor before freezing commissioning evidence. No temporary operator proof
+envelope, real token or production commissioning record was imported.
 The build retains existing lint/third-party VLC/SVGKit warnings and Apple's optional
 App Intents metadata warning; it is not warning-free. No physical-device signing or
 installation is implied. `git diff --check` and project/parent plist syntax passed.

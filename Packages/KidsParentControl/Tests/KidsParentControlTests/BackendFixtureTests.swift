@@ -47,7 +47,7 @@ private func wireFixture(_ name: String, _ key: String) throws -> Data {
     let decoded = try JSONSerialization.jsonObject(with: Data(contentsOf: url))
     let object = try #require(decoded as? [String: Any])
     let value = try #require(object[key])
-    return try JSONSerialization.data(withJSONObject: value)
+    return try JSONSerialization.data(withJSONObject: value, options: .fragmentsAllowed)
 }
 
 private func nativeUUIDBody(_ key: String) throws -> Data {
@@ -221,14 +221,104 @@ func `actual admission conflict fixtures preserve integrity versus definite refu
     }
 }
 
-private func recoveryAPI(_ transport: FixtureTransport) throws -> KidsReceiverAPI {
+private func recoveryAPI(_ transport: FixtureTransport, clientRevision: ReceiverBuildRevision? = nil) throws -> KidsReceiverAPI {
     try KidsReceiverAPI(
         server: ParentServer("http://127.0.0.1:9"),
         serverID: "10000000-0000-4000-8000-000000000001",
         childUserID: "10000000-0000-4000-8000-000000000003",
         deviceID: "10000000-0000-4000-8000-000000000004",
-        token: "synthetic", transport: transport
+        token: "synthetic", clientRevision: clientRevision, transport: transport
     )
+}
+
+private func buildResponse(_ key: String) throws -> (Int, Data) {
+    let data = try wireFixture("receiver-build-transaction", key)
+    let decoded = try JSONSerialization.jsonObject(with: data)
+    let object = try #require(decoded as? [String: Any])
+    let status = try #require(object["httpStatus"] as? Int)
+    return try (status, JSONSerialization.data(withJSONObject: #require(object["body"])))
+}
+
+@Test
+func `backend build fixture refusals remain unsupported without producing authority`() async throws {
+    let name = "receiver-build-transaction"
+    let intent = try JSONDecoder().decode(GrantIntentRequest.self, from: wireFixture(name, "intent-request"))
+    for key in ["no-operator-record", "wrong-header-policy", "decommissioned-policy"] {
+        let response = try buildResponse(key)
+        #expect(response.0 == 501)
+        let api = try recoveryAPI(FixtureTransport(status: response.0, data: response.1))
+        await #expect(throws: ParentControlError.unsupported) { try await api.policy() }
+    }
+    for key in ["missing-header-new-intent", "wrong-header-new-intent"] {
+        let response = try buildResponse(key)
+        let api = try recoveryAPI(FixtureTransport(status: response.0, data: response.1))
+        await #expect(throws: ParentControlError.unsupported) {
+            try await api.requestPlaybackIntent(
+                commandID: intent.commandID,
+                expectedRevision: intent.expectedRevision,
+                playbackSessionID: intent.playbackSessionID,
+                itemID: intent.itemID
+            )
+        }
+    }
+}
+
+@Test
+func `backend build fixture keeps committed retries and surrender stable across declared build changes`() async throws {
+    let name = "receiver-build-transaction"
+    let transport = try FixtureTransport(httpReplies: [
+        buildResponse("intent-receipt"), buildResponse("bound-policy"), buildResponse("started-receipt"),
+        buildResponse("wrong-header-exact-intent-retry"), buildResponse("wrong-header-exact-event-retry"),
+        buildResponse("wrong-header-policy"), buildResponse("safe-surrender-wrong-header"),
+        buildResponse("decommissioned-exact-intent-retry"), buildResponse("decommissioned-policy")
+    ])
+    // These are synthetic native declarations. The fixture records the backend's
+    // accepted/refused outcomes; replay does not execute its commission registry.
+    let firstBuild = try #require(ReceiverBuildRevision(rawValue: String(repeating: "a", count: 64)))
+    let changedBuild = try #require(ReceiverBuildRevision(rawValue: String(repeating: "b", count: 64)))
+    let first = try recoveryAPI(transport, clientRevision: firstBuild)
+    let changed = try recoveryAPI(transport, clientRevision: changedBuild)
+    let decoder = JSONDecoder()
+    let intent = try decoder.decode(GrantIntentRequest.self, from: wireFixture(name, "intent-request"))
+    func submit(_ api: KidsReceiverAPI) async throws {
+        try await api.requestPlaybackIntent(
+            commandID: intent.commandID,
+            expectedRevision: intent.expectedRevision,
+            playbackSessionID: intent.playbackSessionID,
+            itemID: intent.itemID
+        )
+    }
+    try await submit(first)
+    let bound = try await first.policy()
+    #expect(bound.playbackIntentID == intent.commandID && bound.leasePlaybackSessionID == intent.playbackSessionID &&
+        bound.leaseItemID == intent.itemID && bound.viewingAllowed)
+    let started = try decoder.decode(ReceiverEvent.self, from: wireFixture(name, "started-request"))
+    try await first.send(started)
+    try await submit(changed)
+    try await changed.send(started)
+    await #expect(throws: ParentControlError.unsupported) { try await changed.policy() }
+    let surrender = try decoder.decode(GrantSurrenderRequest.self, from: wireFixture(name, "safe-surrender-request"))
+    try await changed.surrenderPlayback(
+        commandID: surrender.commandID,
+        playbackIntentID: surrender.playbackIntentID,
+        playbackSessionID: surrender.playbackSessionID,
+        itemID: surrender.itemID
+    )
+    try await submit(changed)
+    await #expect(throws: ParentControlError.unsupported) { try await changed.policy() }
+    let requests = await transport.requests
+    #expect(requests.count == 9)
+    #expect(requests[0].httpBody == requests[3].httpBody && requests[0].httpBody == requests[7].httpBody)
+    #expect(requests[2].httpBody == requests[4].httpBody)
+    let header = try decoder.decode(String.self, from: wireFixture(name, "headerName"))
+    #expect(header == "X-Kids-Client-Build")
+    #expect(requests[0].value(forHTTPHeaderField: header) == firstBuild.rawValue)
+    #expect(requests[3].value(forHTTPHeaderField: header) == changedBuild.rawValue)
+    #expect(requests[0].value(forHTTPHeaderField: "Idempotency-Key") == requests[3].value(forHTTPHeaderField: "Idempotency-Key"))
+    let accounting = try JSONSerialization.jsonObject(with: wireFixture(name, "accounting-after-untrusted-revocation")) as? [String: Double]
+    #expect(accounting?["usedSeconds"] == 5 && accounting?["uncertainSeconds"] == 25 && accounting?["reservedSeconds"] == 0)
+    let trial = try JSONSerialization.jsonObject(with: wireFixture(name, "synthetic-operator-trial-state")) as? [String: Any]
+    #expect(trial?["productionCommissioned"] as? Bool == false)
 }
 
 @Test

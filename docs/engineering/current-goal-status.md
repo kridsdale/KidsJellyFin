@@ -6,14 +6,15 @@ The current goal is to complete the Parents iPhone app, its tvOS receiver and th
 backend integration, coordinating with **Make YT Feature**. It is not complete.
 Client admission base `0524f3ba` and its subsequent build-declaration/phone fixes
 wire durable explicit playback admission. Current checks pass51 application,
-62 protocol,22 policy,21 session,21 VLC ownership and9 parent-model synthetic tests;
+64 protocol,22 policy,21 session,21 VLC ownership and9 parent-model synthetic tests;
 the55-library boundary audit and built/source fingerprint match also pass.
 These source checks do not establish deployed parental enforcement or live playback.
 
 The client also declares its embedded build in receiver HTTP headers and protected
 pairing settings. The backend agent is finishing exact approved-library readers,
-startup/maintenance locks and the newly identified missing operator commission
-registry/trial launcher. Deployment, provisioning, isolated receiver commissioning
+startup/maintenance locks and final verification of the operator commission
+registry/trial launcher. Its candidate transaction fixture passes native replay;
+final backend checkpoint confirmation is pending. Deployment, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete
 ordered test scope and rollback are in [parents-commissioning.md](parents-commissioning.md).

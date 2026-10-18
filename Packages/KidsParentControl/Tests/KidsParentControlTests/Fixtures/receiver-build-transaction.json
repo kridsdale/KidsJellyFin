@@ -1,0 +1,155 @@
+{
+  "accounting-after-untrusted-revocation": {
+    "historyCount": 1,
+    "reservedSeconds": 0,
+    "uncertainSeconds": 25.0,
+    "usedSeconds": 5.0
+  },
+  "bound-policy": {
+    "body": {
+      "birdItemID": null,
+      "blockedEpisodeIDs": [],
+      "blockedShowIDs": [],
+      "childUserID": "10000000-0000-4000-8000-000000000003",
+      "commands": [],
+      "deadline": "2026-10-17T12:01:00.000Z",
+      "deviceID": "10000000-0000-4000-8000-000000000004",
+      "enforcementEnabled": true,
+      "finishPlaybackSessionID": null,
+      "leaseItemID": "10000000-0000-4000-8000-000000000006",
+      "leasePlaybackSessionID": "Synthetic-Controller-A",
+      "playbackIntentAvailable": false,
+      "playbackIntentID": "abcdefab-0000-4000-8000-000000001b5f",
+      "playbackIntentRequired": true,
+      "revision": 3,
+      "serverID": "10000000-0000-4000-8000-000000000001",
+      "serverTime": "2026-10-17T12:00:00.000Z",
+      "shuffle": {
+        "preferUnwatched": false,
+        "preferredShowIDs": [],
+        "repeatCooldownDays": 0
+      },
+      "validUntil": "2026-10-17T12:00:30.000Z",
+      "viewingAllowed": true
+    },
+    "httpStatus": 200
+  },
+  "decommissioned-exact-intent-retry": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b5f",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "decommissioned-policy": {
+    "body": {
+      "error": "receiver_build_unverified",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 501
+  },
+  "headerName": "X-Kids-Client-Build",
+  "historical-progress-wrong-header": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b61",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "intent-receipt": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b5f",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "intent-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "ABCDEFAB-0000-4000-8000-000000001B5F",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "expectedRevision": 2,
+    "itemID": "10000000-0000-4000-8000-000000000006",
+    "playbackSessionID": "Synthetic-Controller-A"
+  },
+  "missing-header-new-intent": {
+    "body": {
+      "error": "receiver_build_unverified",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 501
+  },
+  "no-operator-record": {
+    "body": {
+      "error": "receiver_build_unverified",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 501
+  },
+  "safe-surrender-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": "ABCDEFAB-0000-4000-8000-000000001B62",
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "itemID": "10000000-0000-4000-8000-000000000006",
+    "playbackIntentID": "ABCDEFAB-0000-4000-8000-000000001B5F",
+    "playbackSessionID": "Synthetic-Controller-A"
+  },
+  "safe-surrender-wrong-header": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b62",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "scope": "synthetic-source-only-registry-not-runtime-acceptance",
+  "started-receipt": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b60",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "started-request": {
+    "childUserID": "10000000-0000-4000-8000-000000000003",
+    "commandID": null,
+    "deviceID": "10000000-0000-4000-8000-000000000004",
+    "elapsedPlayingSeconds": 0,
+    "eventID": "ABCDEFAB-0000-4000-8000-000000001B60",
+    "itemID": "10000000-0000-4000-8000-000000000006",
+    "kind": "started",
+    "playbackSessionID": "Synthetic-Controller-A",
+    "policyRevision": 3,
+    "positionSeconds": 0
+  },
+  "synthetic-operator-trial-state": {
+    "productionCommissioned": false,
+    "state": "trial_authorized"
+  },
+  "wrong-header-exact-event-retry": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b60",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "wrong-header-exact-intent-retry": {
+    "body": {
+      "commandID": "abcdefab-0000-4000-8000-000000001b5f",
+      "status": "persisted"
+    },
+    "httpStatus": 200
+  },
+  "wrong-header-new-intent": {
+    "body": {
+      "error": "receiver_build_unverified",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 501
+  },
+  "wrong-header-policy": {
+    "body": {
+      "error": "receiver_build_unverified",
+      "message": "The request could not be completed."
+    },
+    "httpStatus": 501
+  }
+}
