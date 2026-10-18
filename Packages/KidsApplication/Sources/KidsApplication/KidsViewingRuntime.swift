@@ -854,11 +854,14 @@ extension KidsAppModel {
             } else {
                 title = item
             }
+            guard let position = AmbientPlaybackStart.seconds(runtime: item.runtime) else {
+                throw KidsContractError.unavailable
+            }
             let controller = try await playbackFactory.prepare(
                 item: item,
                 title: title,
                 mode: item.kind == .episode ? .once : .movie,
-                position: 0,
+                position: position,
                 episodes: [],
                 delegate: self,
                 performance: nil,
