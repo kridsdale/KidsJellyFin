@@ -8,12 +8,16 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
 
 ## Current checkpoint
 
-- Admission base commit: `0524f3ba` on `feature/kids-release-candidate`, local only;
-  the subsequent build-declaration source is validated by the digest below.
+- Admission base commit: `0524f3ba`; client recovery checkpoint `86c3d963` is
+  published on `kridsdale/KidsJellyFin`, branch `feature/kids-release-candidate`.
+  Source publication does not deploy or commission the parent service.
 - Built/source implementation digest:
   `1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
 - Synthetic checks: application56, protocol64, policy22, playback-session21 and
   VLC ownership21 tests passed. The55-library dependency audit passed.
+- Current Debug and optimized Release tvOS simulator builds both passed and
+  independently match the source digest. No signed-device install or live trial
+  is implied by those build results.
 - Backend final reader/startup checkpoint and rollout commands: awaiting the
   server agent. Its earlier source checkpoint `0e239f5` reported425 tests.
 - Operator registry and isolated trial launcher source now exist. The received

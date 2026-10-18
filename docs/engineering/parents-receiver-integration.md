@@ -5,6 +5,11 @@ checks, not a deployed or commissioned parental-control system. The iPhone app a
 its backend request are documented in [parents-app.md](parents-app.md) and
 [parents-backend-handoff.md](parents-backend-handoff.md).
 
+Client source through `86c3d963` is published on the existing GitHub
+`kridsdale/KidsJellyFin` feature branch, with local/remote equality verified. The18
+published commits exclude local workflow/dependency-file edits. This is source
+publication, not an App Store upload, service deployment or receiver activation.
+
 ## What changed
 
 The same Xcode project now has a native iPhone parent target and an opt-in tvOS
@@ -568,6 +573,30 @@ receiver paired, policy activated, service deployed or family trial run by this 
 
 ## Verification
 
+### Installed metadata reconciliation
+
+The server agent reports a read-only, loopback-only API reconciliation under RAID
+read/write denial. All4,619 exact approved file parts are covered, with zero missing
+or unexpected entries:4,557 baseline staging parts plus62 READY cache parts. They
+represent4,508 playable items, not a reduced import:
+
+| Kind | Playable items | Approved file parts | Extra variant parts | Items with multiple parts |
+| --- | --- | --- | --- | --- |
+| Episode | 4380 | 4488 | 108 | 87 |
+| Movie | 128 | 131 | 3 | 2 |
+| Total | 4508 | 4619 | 111 | 89 |
+
+No containers explain the difference. Every returned MediaSources path must belong
+to the exact approved set and the same Plex metadata group/library. Eligible
+episode userdata coverage is complete for that snapshot. The API adapter avoids
+opening Jellyfin's live SQLite/WAL coordination files; it does not relax permissions
+or use an unsafe immutable-database assumption. The server's sanitized receipt is
+`outputs/parents-policy-fixtures/installed-metadata-api-count-reconciliation-20261017.json`.
+Its10.047-second source check issued no parent credentials, started no new listener
+and requested no playback. Reader snapshot readiness is separate from commissioned
+receiver/feature readiness, which remains off. Final backend checkpoint verification
+is still pending.
+
 Local checks on 2026-10-17:
 
 | Check | Result |
@@ -618,6 +647,10 @@ Source fingerprints identify these builds; they do not certify a runtime budget 
 After the final source changes and formatting, the built TV app's
 `KidsEvidenceImplementationRevision` matches source SHA-256
 `1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
+The current Debug and optimized Release tvOS simulator builds both passed after
+the epoch-recovery implementation, for arm64 and x86_64 with signing disabled.
+Both built Info.plist fingerprints were independently compared to that source
+digest and matched. The Release build was not installed or launched.
 The build-declaration integration and explicit epoch recovery now pass all56 application tests and add protocol
 coverage for all four receiver routes, unchanged frozen bodies and rejection of
 uppercase, malformed-length, nonhex and CRLF header values.

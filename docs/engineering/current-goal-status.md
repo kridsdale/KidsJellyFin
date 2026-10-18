@@ -9,6 +9,11 @@ wire durable explicit playback admission. Current checks pass56 application,
 64 protocol,22 policy,21 session,21 VLC ownership and9 parent-model synthetic tests;
 the55-library boundary audit and built/source fingerprint match also pass.
 These source checks do not establish deployed parental enforcement or live playback.
+Current Debug and optimized Release TV simulator builds both pass, and each built
+fingerprint matches source `1c06b1a4508e1a56df2063d775c7475a27a5d14a2bc57f34bb04541b2f1f7233`.
+The18 tested client commits through `86c3d963` are published on the existing GitHub
+feature branch; local/remote heads were verified equal. Workflow files were not
+included, and no TestFlight/manual release was triggered by this feature-branch push.
 
 The client also declares its embedded build in receiver HTTP headers and protected
 pairing settings, and provides explicit PIN-protected archival after a verified
