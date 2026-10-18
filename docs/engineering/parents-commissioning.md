@@ -24,9 +24,18 @@ the requirements and source evidence are in [parents-app.md](parents-app.md) and
   separately enforced native-policy startup/drain test. The600,000-row storage
   fixture passes. This is uninstalled source, not receiver runtime acceptance.
 - The4,580-byte build transaction is frozen unchanged and passes native replay.
-  Concrete deployment preparation remains engineering work: private per-trial
-  config/SB profile, immutable release/root-staging manifest and guarded production/
-  monitor/rollback package. The committed backend procedure alone is not that package.
+  Backend packaging commit `91c80e66` supplies a concrete code/private-config
+  staging packet, with18 targeted packaging tests passing. Its payload manifest is
+  `6c1d77e9ff58a4f91e5653aaa9ca79d8a7fae17044eb1a66dbfadda9779a6080`;
+  its sanitized review hashes to
+  `528ff5f70ed3dde2a4df723d375359dac052e7f8ec820c96b9be33bb8e08dc8c`.
+  The candidate expires2026-10-17 at22:12:45 Pacific; changed/expired inputs refuse,
+  with no silent extension. No root source copy or private config staging has run.
+  The exact proposed profile compiles and denies RAID reads/writes and family-root
+  writes. Positive write permission for the real trial directory is unverified
+  because it does not exist; recheck after separately approved config staging.
+  Production monitor/SRE orchestration remains engineering work, beyond the tested
+  paired-file transaction component. The current packet has no production command.
 - One offline preview UI check on a fresh TV simulator observed its real vendor
   installation ID and this build. Installed bundle identity/build and cloud sync
   `NO` were cross-checked separately; the simulator is shut down. The private

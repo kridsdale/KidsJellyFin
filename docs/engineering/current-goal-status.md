@@ -22,8 +22,14 @@ source is frozen at `c799d2d6`:492 joined tests plus one separate native-policy 
 pass, and the unchanged build fixture passes native replay. All4,619 approved file
 parts reconcile to4,508 playable items with zero missing/unexpected entries.
 One fresh-simulator offline UI check supplied actual installation/build identity
-only. The backend agent is preparing concrete trial/private-config/root-staging and
-production/monitor/rollback packages; the existing procedure is not a staged installer.
+only. A concrete source/private-config staging packet is now frozen under backend
+packaging commit `91c80e66`;18 targeted packaging tests pass. The prepared verifier
+and exact proposed kernel policy checks pass for RAID/family write denial. The real
+trial directory does not yet exist, so its positive write permission remains
+unverified. No privileged copy or config staging has occurred. Approval was requested
+for those two explicit scopes, without service start or credential issuance.
+Production monitor/SRE orchestration remains engineering work; the tested file
+transaction component is not an end-to-end native installer.
 Deployment, provisioning, isolated receiver commissioning
 and feature acceptance remain unperformed by this work. All13 requirements and
 their completion evidence remain in [parents-app.md](parents-app.md); the concrete
