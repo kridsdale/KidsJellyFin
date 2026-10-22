@@ -507,6 +507,11 @@ struct KidsTitleView: View {
                 }
                 .focused($focused, equals: "parents")
                 .accessibilityIdentifier("kids.title.parents")
+                .onMoveCommand { direction in
+                    if direction == .up {
+                        focused = item.kind == .series ? "next" : "play"
+                    }
+                }
             }
         }
         .padding(80).frame(maxWidth: .infinity, maxHeight: .infinity).background(kidsBackground)
@@ -549,6 +554,11 @@ struct KidsTitleView: View {
                 Text(title).font(.title2.bold()).lineLimit(1).minimumScaleFactor(0.8)
             }.frame(width: item.kind == .movie ? 300 : 205, height: 165)
         }.buttonStyle(.borderedProminent).focused($focused, equals: id).accessibilityIdentifier("kids.action.\(id)")
+            .onMoveCommand { direction in
+                if direction == .down {
+                    focused = "parents"
+                }
+            }
             .disabled(model.starting)
     }
 
