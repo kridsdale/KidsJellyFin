@@ -24,7 +24,7 @@ def main() -> int:
         tests = directory / "Tests"
         sources.mkdir()
         tests.mkdir()
-        for name in ("ParentsModel.swift", "ParentsModel+Features.swift", "ParentCredentialVault.swift"):
+        for name in ("ParentsModel.swift", "ParentsModel+Features.swift", "ParentsModel+Authorization.swift", "ParentCredentialVault.swift"):
             shutil.copyfile(ROOT / "KidsParents" / name, sources / name)
         shutil.copyfile(ROOT / "KidsParentsTests/ParentsLifecycleTests.swift", tests / "ParentsLifecycleTests.swift")
         parent_path = json.dumps(str(ROOT / "Packages/KidsParentControl"))

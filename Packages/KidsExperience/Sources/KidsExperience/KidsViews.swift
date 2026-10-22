@@ -42,70 +42,76 @@ public struct KidsRootView: View {
     private var path: [KidsItem] = []
     private let gateTimer = Timer.publish(every: 5, on: .main, in: .common).autoconnect()
     public var body: some View {
-        NavigationStack(path: $path) {
-            Group {
-                if model.loading {
-                    KidsStatusView(symbol: "tv", title: "Finding your shows…")
-                } else if model.requiresParent || !model.hasParentPIN {
-                    KidsStatusView(
-                        symbol: "person.crop.circle.badge.checkmark",
-                        title: "A grown-up can help.",
-                        detail: model.problem,
-                        actionTitle: "Parents",
-                        actionSymbol: "lock.fill",
-                        action: { model.parentPresented = true }
-                    )
-                } else if model.viewingHeld {
-                    KidsStatusView(symbol: "leaf", title: "Quiet time.", parentAction: { model.parentPresented = true })
-                } else if model.problem != nil && model.catalog.isEmpty {
-                    KidsStatusView(
-                        symbol: "wifi.slash",
-                        title: "Your shows are taking a break.",
-                        parentAction: { model.parentPresented = true },
-                        action: { Task { await model.refresh() } }
-                    )
-                } else {
-                    KidsBrowseView(model: model, path: $path)
+        KidsParentsSidebar(
+            model: model,
+            isPresented: model.parentPresented && model.activePlayback == nil,
+            playbackPresentation: playbackPresentation
+        ) {
+            NavigationStack(path: $path) {
+                Group {
+                    if model.loading {
+                        KidsStatusView(symbol: "tv", title: "Finding your shows…")
+                    } else if model.requiresParent || !model.hasParentPIN {
+                        KidsStatusView(
+                            symbol: "person.crop.circle.badge.checkmark",
+                            title: "A grown-up can help.",
+                            detail: model.problem,
+                            actionTitle: "Parents",
+                            actionSymbol: "lock.fill",
+                            action: { model.parentPresented = true }
+                        )
+                    } else if model.viewingHeld {
+                        KidsStatusView(symbol: "leaf", title: "Quiet time.", parentAction: { model.parentPresented = true })
+                    } else if model.problem != nil && model.catalog.isEmpty {
+                        KidsStatusView(
+                            symbol: "wifi.slash",
+                            title: "Your shows are taking a break.",
+                            parentAction: { model.parentPresented = true },
+                            action: { Task { await model.refresh() } }
+                        )
+                    } else {
+                        KidsBrowseView(model: model, path: $path)
+                    }
                 }
-            }
-            .navigationDestination(for: KidsItem.self) { item in
-                if !model.requiresParent, !model.viewingHeld, model.catalog.values.contains(where: { $0.contains(item) }) {
-                    KidsTitleView(
-                        model: model,
-                        item: item
-                    )
-                } else {
-                    KidsStatusView(
-                        symbol: "lock.fill",
-                        title: "A grown-up can help.",
-                        actionTitle: "Parents",
-                        actionSymbol: "lock.fill",
-                        action: { model.parentPresented = true }
-                    )
+                .navigationDestination(for: KidsItem.self) { item in
+                    if !model.requiresParent, !model.viewingHeld, model.catalog.values.contains(where: { $0.contains(item) }) {
+                        KidsTitleView(
+                            model: model,
+                            item: item
+                        )
+                    } else {
+                        KidsStatusView(
+                            symbol: "lock.fill",
+                            title: "A grown-up can help.",
+                            actionTitle: "Parents",
+                            actionSymbol: "lock.fill",
+                            action: { model.parentPresented = true }
+                        )
+                    }
                 }
+                .toolbar(.hidden, for: .navigationBar)
             }
-            .toolbar(.hidden, for: .navigationBar)
         }
         .tint(kidsTeal).preferredColorScheme(.dark).background(kidsBackground)
-        .sheet(
-            isPresented: Binding(get: { model.parentPresented && model.activePlayback == nil }, set: { model.parentPresented = $0 }),
-            onDismiss: { model.lockParents()
-                model.resumeViewingAfterParentSheet()
-            }
-        ) { KidsParentView(model: model, playbackPresentation: playbackPresentation) }
         .fullScreenCover(item: Binding(get: { model.activePlayback }, set: { newValue in
             guard newValue == nil, let presented = model.activePlayback else { return }
             Task { await model.dismissPlayback(presented) }
         })) { playback in
-            if model.ambientMode {
-                playbackPresentation.surface(for: playback).ignoresSafeArea().background(.black)
-                    .focusable().onExitCommand {}.onPlayPauseCommand {}.interactiveDismissDisabled()
-                    .overlay(alignment: .bottomTrailing) {
-                        Button("Parents", systemImage: "lock") { Task { await model.requestViewingParentAccess() } }
-                            .font(.caption).padding(24).opacity(0.3)
-                    }
-            } else {
-                KidsPlayerView(model: model, playback: playback, playbackPresentation: playbackPresentation)
+            KidsParentsSidebar(
+                model: model,
+                isPresented: model.parentPresented,
+                playbackPresentation: playbackPresentation
+            ) {
+                if model.ambientMode {
+                    playbackPresentation.surface(for: playback).ignoresSafeArea().background(.black)
+                        .focusable().onExitCommand {}.onPlayPauseCommand {}.interactiveDismissDisabled()
+                        .overlay(alignment: .bottomTrailing) {
+                            Button("Parents", systemImage: "lock") { model.parentPresented = true }
+                                .font(.caption).padding(24).opacity(0.3)
+                        }
+                } else {
+                    KidsPlayerView(model: model, playback: playback, playbackPresentation: playbackPresentation)
+                }
             }
         }
         .sheet(isPresented: $model.sessionFinished) {
@@ -156,6 +162,78 @@ public struct KidsRootView: View {
         }
         .onReceive(gateTimer) { _ in model.checkGate() }
         // v1 intentionally has no item/account deep-link route. Incoming URLs cannot switch identity or escape the approved catalog.
+    }
+}
+
+/// Resizing changes layout only; the existing content and renderer keep their identity.
+private struct KidsParentsSidebar<Content: View>: View {
+    @ObservedObject
+    var model: KidsAppModel
+    let isPresented: Bool
+    let playbackPresentation: any KidsPlaybackPresentation
+    private let content: Content
+    @Environment(\.accessibilityReduceMotion)
+    private var reduceMotion
+    @FocusState
+    private var closeFocused: Bool
+
+    init(
+        model: KidsAppModel,
+        isPresented: Bool,
+        playbackPresentation: any KidsPlaybackPresentation,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.model = model
+        self.isPresented = isPresented
+        self.playbackPresentation = playbackPresentation
+        self.content = content()
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            let sidebarWidth = geometry.size.width * 0.25
+            HStack(spacing: 0) {
+                content
+                    .frame(width: geometry.size.width - (isPresented ? sidebarWidth : 0), height: geometry.size.height)
+                    .clipped()
+                    .disabled(isPresented)
+                    .allowsHitTesting(!isPresented)
+                    .accessibilityHidden(isPresented)
+                if isPresented {
+                    VStack(spacing: 0) {
+                        Button("Back to kids", systemImage: "chevron.left") { close() }
+                            .font(.headline).buttonStyle(.bordered)
+                            .focused($closeFocused)
+                            .accessibilityIdentifier("kids.parent.sidebar.close")
+                            .padding(.top, 30).padding(.bottom, 15)
+                        KidsParentView(model: model, playbackPresentation: playbackPresentation, onClose: close)
+                            .font(.callout)
+                    }
+                    .frame(width: sidebarWidth, height: geometry.size.height)
+                    .background(kidsBackground)
+                    .focusSection()
+                    .defaultFocus($closeFocused, true)
+                    .onAppear { closeFocused = true }
+                    .onExitCommand { close() }
+                    .accessibilityIdentifier("kids.parent.sidebar")
+                    .transition(.move(edge: .trailing))
+                }
+            }
+            .frame(width: geometry.size.width, height: geometry.size.height, alignment: .leading)
+            .clipped()
+            .animation(reduceMotion ? nil : .easeInOut(duration: 0.28), value: isPresented)
+        }
+        .ignoresSafeArea()
+        .onChange(of: isPresented) {
+            if !isPresented {
+                model.lockParents()
+                model.resumeViewingAfterParentSheet()
+            }
+        }
+    }
+
+    private func close() {
+        model.parentPresented = false
     }
 }
 
@@ -427,6 +505,8 @@ struct KidsTitleView: View {
                 Button("Parents", systemImage: "lock.fill") { model.selectedShow = item.kind == .series ? item : model.selectedShow
                     model.parentPresented = true
                 }
+                .focused($focused, equals: "parents")
+                .accessibilityIdentifier("kids.title.parents")
             }
         }
         .padding(80).frame(maxWidth: .infinity, maxHeight: .infinity).background(kidsBackground)
@@ -448,12 +528,16 @@ struct KidsTitleView: View {
         }
         .onChange(of: focused) {
             if let focused {
-                let label = focused == "shuffle" ? (episodes.count == 1 ? "Shuffle. This show has one episode." : "Shuffle") :
-                    (item
-                        .kind == .movie ?
-                        (model.state?.movies[item.id]?
-                            .complete == true ? "Play again" : ((model.state?.movies[item.id]?.seconds ?? 0) > 0 ? "Resume" : "Play")) :
-                        (again ? "Again" : "Next"))
+                let label = if focused == "parents" {
+                    "Parents"
+                } else if focused == "shuffle" {
+                    episodes.count == 1 ? "Shuffle. This show has one episode." : "Shuffle"
+                } else if item.kind == .movie {
+                    model.state?.movies[item.id]?.complete == true ?
+                        "Play again" : ((model.state?.movies[item.id]?.seconds ?? 0) > 0 ? "Resume" : "Play")
+                } else {
+                    again ? "Again" : "Next"
+                }
                 model.narration(label)
             }
         }
@@ -586,9 +670,8 @@ struct KidsPlayerView: View {
                             playback.toggle()
                         }
                         .focused($control, equals: "playpause").accessibilityIdentifier("kids.player.playpause")
-                        Button("Parents", systemImage: "lock.fill") { playback.pauseOnBackground()
-                            model.parentPresented = true
-                        }.accessibilityIdentifier("kids.player.parents")
+                        Button("Parents", systemImage: "lock.fill") { model.parentPresented = true }
+                            .accessibilityIdentifier("kids.player.parents")
                     }.buttonStyle(.borderedProminent)
                         .onPlayPauseCommand { playback.toggle() }
                 }.padding(65).background(LinearGradient(colors: [.clear, .black.opacity(0.9)], startPoint: .top, endPoint: .bottom))
@@ -597,7 +680,13 @@ struct KidsPlayerView: View {
             }
         }
         .ignoresSafeArea()
-        .onExitCommand { Task { await playback.handleBack() } }
+        .onExitCommand {
+            if model.parentPresented {
+                model.parentPresented = false
+            } else {
+                Task { await playback.handleBack() }
+            }
+        }
         .onMoveCommand { _ in playback.reveal() }
         .onTapGesture { playback.reveal() }
         .onChange(of: phase) {
@@ -605,10 +694,12 @@ struct KidsPlayerView: View {
                 playback.pauseOnBackground()
             }
         }
-        .sheet(isPresented: $model.parentPresented, onDismiss: { model.lockParents() }) { KidsParentView(
-            model: model,
-            playbackPresentation: playbackPresentation
-        ) }
+        .onChange(of: model.parentPresented) {
+            if !model.parentPresented {
+                playback.reveal()
+                control = "playpause"
+            }
+        }
     }
 
     private func time(_ value: Double) -> String {

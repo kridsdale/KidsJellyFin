@@ -23,6 +23,10 @@ public actor ParentControlAPI {
         headers = ["Authorization": "Bearer \(token)"]
     }
 
+    func requireAuthorizationServer(_ value: String) throws {
+        guard value == serverID else { throw ParentControlError.serverMismatch }
+    }
+
     public func connect() async throws -> ParentCapabilities {
         capabilities = nil
         let value: ParentCapabilities = try await http.request("api/parent/v1/capabilities", headers: headers)
@@ -37,6 +41,31 @@ public actor ParentControlAPI {
         let value: ParentDashboard = try await http.request("api/parent/v1/dashboard", headers: headers)
         guard value.serverID == serverID else { throw ParentControlError.serverMismatch }
         return value
+    }
+
+    public func setEnforcement(tv: ControlledTV, enabled: Bool, commandID: UUID = UUID()) async throws -> ParentCommandReceipt {
+        try require("receiver-enforcement-v1")
+        guard tv.enforcementEnabled != nil, tv.revision >= 0, !enabled || tv.online else {
+            throw ParentControlError.invalidSelection
+        }
+        let deviceID = try ParentHTTP.identifier(tv.id)
+        _ = try ParentHTTP.identifier(tv.childUserID)
+        struct Enforcement: Encodable {
+            let commandID: UUID
+            let childUserID: String
+            let expectedRevision: Int
+            let enabled: Bool
+        }
+        return try await command(
+            "devices/\(deviceID)/enforcement",
+            value: Enforcement(
+                commandID: commandID,
+                childUserID: tv.childUserID,
+                expectedRevision: tv.revision,
+                enabled: enabled
+            ),
+            id: commandID
+        )
     }
 
     public func countdown(_ request: CountdownRequest) async throws -> ParentCommandReceipt {
@@ -96,7 +125,8 @@ public actor ParentControlAPI {
             "api/parent/v1/\(path)",
             method: "POST",
             headers: headers,
-            body: JSONEncoder().encode(value)
+            body: JSONEncoder().encode(value),
+            parentMutation: true
         )
         guard receipt.commandID == id else { throw ParentControlError.malformedResponse }
         return receipt

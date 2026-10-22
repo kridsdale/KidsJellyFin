@@ -13,6 +13,7 @@ let package = Package(
         .package(path: "../KidsDiagnosticsUI"),
         .package(path: "../KidsDomain"),
         .package(path: "../KidsPlaybackSession"),
+        .package(path: "../KidsServerDiscovery"),
         .package(path: "../SwiftfinUIState")
     ],
     targets: [.target(name: "KidsExperience", dependencies: [
@@ -23,6 +24,7 @@ let package = Package(
         .product(name: "KidsDiagnosticsUI", package: "KidsDiagnosticsUI"),
         .product(name: "KidsDomain", package: "KidsDomain"),
         .product(name: "KidsPlaybackSession", package: "KidsPlaybackSession"),
+        .product(name: "KidsServerDiscovery", package: "KidsServerDiscovery"),
         .product(name: "SwiftfinUIState", package: "SwiftfinUIState")
     ])]
 )

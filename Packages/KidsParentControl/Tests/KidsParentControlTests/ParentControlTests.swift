@@ -21,6 +21,9 @@ private actor StubTransport: ParentHTTPTransport {
         requests.append(request)
         guard !replies.isEmpty else { throw ParentControlError.malformedResponse }
         let (status, json) = replies.removeFirst()
+        if status == 0 {
+            throw URLError(.networkConnectionLost)
+        }
         return (Data(json.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
     }
 }
@@ -173,6 +176,40 @@ func `commands carry idempotency and never claim playback`() async throws {
     #expect(requests.last?.value(forHTTPHeaderField: "X-Emby-Token") == nil)
 }
 
+@Test(arguments: [true, false])
+func `enforcement binds scoped revision and permits disabling offline`(_ enabled: Bool) async throws {
+    let id = UUID()
+    let transport = StubTransport([
+        (200, #"{"version":1,"serverID":"family","features":["receiver-enforcement-v1"]}"#),
+        (202, "{\"commandID\":\"\(id)\",\"status\":\"persisted\"}")
+    ])
+    let api = try service(transport)
+    _ = try await api.connect()
+    let json = dashboardJSON
+        .replacingOccurrences(of: "\"online\":true", with: "\"online\":\(enabled)")
+        .replacingOccurrences(of: "\"revision\":7", with: "\"revision\":7,\"enforcementEnabled\":\(!enabled)")
+    let state = try JSONDecoder().decode(ParentDashboard.self, from: Data(json.utf8))
+    let tv = state.televisions[0]
+    let receipt = try await api.setEnforcement(tv: tv, enabled: enabled, commandID: id)
+
+    #expect(receipt.commandID == id && receipt.status == "persisted")
+    #expect(tv.enforcementEnabled == !enabled)
+    let requests = await transport.requests
+    let request = try #require(requests.last)
+    #expect(request.url?.path == "/api/parent/v1/devices/tv/enforcement")
+    #expect(request.httpMethod == "POST")
+    #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer companion-only")
+    #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == id.uuidString)
+    let body = try #require(request.httpBody)
+    let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(Set(fields.keys) == Set(["commandID", "childUserID", "expectedRevision", "enabled"]))
+    #expect(fields["commandID"] as? String == id.uuidString)
+    #expect(fields["childUserID"] as? String == "kid")
+    #expect(fields["expectedRevision"] as? Int == 7)
+    #expect(fields["enabled"] as? Bool == enabled)
+    #expect(requests.count == 2)
+}
+
 @Test
 func `stale write rejected without retry`() async throws {
     let transport = StubTransport([(200, capabilities), (409, "")])
@@ -237,4 +274,28 @@ func `server deadline accepts fractional timestamps`(_ date: String) async throw
     _ = try await api.connect()
     let state = try await api.dashboard()
     #expect(state.televisions[0].countdown?.status == "persisted")
+}
+
+@Test(arguments: ["revision", "other", "malformed", "412", "500", "network", "read"])
+func `only exact parent mutation revision conflicts are retryable`(_ scenario: String) async throws {
+    let status = scenario == "500" ? 500 : (scenario == "network" ? 0 : (scenario == "412" ? 412 : 409))
+    let json = scenario == "other" ? #"{"error":"active_intent_exists"}"# :
+        (scenario == "malformed" ? "not-json" : #"{"error":"revision_conflict"}"#)
+    let transport = StubTransport([(status, json)])
+    let http = try ParentHTTP(server: ParentServer("http://127.0.0.1:9"), transport: transport)
+    do {
+        let _: ParentCommandReceipt = try await http.request("api/parent/v1/test", method: "POST", parentMutation: scenario != "read")
+        Issue.record("A failed request was accepted")
+    } catch {
+        if scenario == "revision" {
+            #expect(error is ParentRevisionConflict)
+        } else if scenario == "500" {
+            #expect(error as? ParentControlError == .http(500))
+        } else if scenario == "network" {
+            #expect((error as? URLError)?.code == .networkConnectionLost)
+        } else {
+            #expect(error as? ParentControlError == .conflict)
+        }
+    }
+    #expect(await transport.requests.count == 1)
 }

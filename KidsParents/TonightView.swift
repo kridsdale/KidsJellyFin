@@ -33,8 +33,41 @@ struct TonightView: View {
                             ForEach(dashboard.televisions) { Text($0.name).tag($0.id) }
                         }
                         if let tv = model.chosenTV {
-                            Label(tv.online ? "TV is online" : "TV is offline", systemImage: tv.online ? "wifi" : "wifi.slash")
-                                .foregroundStyle(tv.online ? .secondary : Color.orange)
+                            Label(
+                                model
+                                    .needsRefresh ? "TV status needs refresh" :
+                                    (tv.online ? "TV online at last refresh" : "TV offline at last refresh"),
+                                systemImage: model.needsRefresh ? "arrow.clockwise" : (tv.online ? "wifi" : "wifi.slash")
+                            )
+                            .foregroundStyle(tv.online && !model.needsRefresh ? .secondary : Color.orange)
+                            if let child = dashboard.children.first(where: { $0.id == tv.childUserID }) {
+                                LabeledContent("Child profile", value: child.name)
+                            }
+                            if let enforcementEnabled = tv.enforcementEnabled {
+                                if model.supports("receiver-enforcement-v1") {
+                                    LabeledContent("Parental controls", value: enforcementEnabled ? "Enabled" : "Disabled")
+                                    Button(enforcementEnabled ? "Disable parental controls" : "Enable parental controls") {
+                                        Task { await model.setEnforcement(enabled: !enforcementEnabled) }
+                                    }
+                                    .disabled(!model.canUse("receiver-enforcement-v1") || (!enforcementEnabled && !tv.online))
+                                    .accessibilityIdentifier("parents.tv.enforcement")
+                                    Text(
+                                        "The status shows the server's saved setting. The TV must connect to receive a change. Enabling requires the TV to be online."
+                                    )
+                                    .font(.footnote).foregroundStyle(.secondary)
+                                } else {
+                                    LabeledContent("Parental controls", value: enforcementEnabled ? "Enabled" : "Disabled")
+                                }
+                            } else {
+                                Text("Parental control activation status is unavailable. Refresh to check this TV's settings.")
+                                    .font(.footnote).foregroundStyle(.secondary)
+                            }
+                            if tv.online && !tv.canEnforceDeadline {
+                                Text(
+                                    "This TV has connected, but countdown enforcement is not ready yet. Refresh after connecting the kids app."
+                                )
+                                .font(.footnote).foregroundStyle(.secondary)
+                            }
                         }
                         Picker("Afterwards", selection: $model.selectedBird) {
                             if dashboard.birdVideos.isEmpty {
@@ -42,8 +75,17 @@ struct TonightView: View {
                             }
                             ForEach(dashboard.birdVideos) { Text($0.name).tag($0.id) }
                         }
+                        if dashboard.birdVideos.isEmpty {
+                            Text("Choose an approved bird video in server setup before starting a countdown.")
+                                .font(.footnote).foregroundStyle(.secondary)
+                        }
                     } else {
-                        Label("Waiting for parent-control support", systemImage: "tv.badge.wifi")
+                        Label(model.dashboard == nil ? "Connect parent access" : "No Apple TV paired yet", systemImage: "tv.badge.wifi")
+                        NavigationLink("Open parent setup") { ParentSettingsView(model: model) }
+                        Text(model
+                            .dashboard == nil ? "Connect saved or new parent access in Settings." :
+                            "Create Apple TV access in server setup, then connect it in the kids app's parent settings.")
+                            .font(.footnote).foregroundStyle(.secondary)
                     }
                     Picker("Time remaining", selection: $model.minutes) {
                         ForEach([5, 10, 15, 20, 30, 45, 60], id: \.self) { Text("\($0) minutes").tag($0) }

@@ -61,8 +61,22 @@ private actor SyntheticTransport: ParentHTTPTransport {
     let suspension: Suspension
     let suspendedPath: String?
     var paths: [String] = []
+    var logoutAuthorizations: [String] = []
+    var mutationRequests: [URLRequest] = []
+    var mutationFailures: [(status: Int, json: String)] = []
+    var freshRevision = 1
+
+    func setMutationFailures(_ failures: [(Int, String)]) {
+        mutationFailures = failures
+    }
+
     var features: [String] = []
     var capabilityStatus = 200
+    var responses: [String: (json: String, status: Int)] = [:]
+
+    func setResponse(path: String, json: String, status: Int = 200) {
+        responses[path] = (json, status)
+    }
 
     func setCapabilities(_ features: [String], status: Int = 200) {
         self.features = features
@@ -77,8 +91,39 @@ private actor SyntheticTransport: ParentHTTPTransport {
     func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
         let url = try #require(request.url)
         paths.append(url.path)
+        if url.path == "/Sessions/Logout", let authorization = request.value(forHTTPHeaderField: "Authorization") {
+            logoutAuthorizations.append(authorization)
+        }
         if url.path == suspendedPath {
             await suspension.suspend()
+        }
+        if request.httpMethod == "POST", url.path.hasPrefix("/api/parent/v1/") {
+            mutationRequests.append(request)
+            if !mutationFailures.isEmpty {
+                let failure = mutationFailures.removeFirst()
+                if failure.status == 0 {
+                    throw URLError(.networkConnectionLost)
+                }
+                return try (
+                    Data(failure.json.utf8),
+                    #require(HTTPURLResponse(url: url, statusCode: failure.status, httpVersion: nil, headerFields: nil))
+                )
+            }
+            let body = try #require(request.httpBody)
+            let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let commandID = try #require(fields["commandID"] as? String)
+            let data = try JSONSerialization.data(withJSONObject: ["commandID": commandID, "status": "persisted"])
+            return try (data, #require(HTTPURLResponse(url: url, statusCode: 202, httpVersion: nil, headerFields: nil)))
+        }
+        if let response = responses[url.path] {
+            let json = response.json.replacingOccurrences(of: "FRESH-REVISION", with: String(freshRevision))
+            if response.json.contains("FRESH-REVISION") {
+                freshRevision += 1
+            }
+            return try (
+                Data(json.utf8),
+                #require(HTTPURLResponse(url: url, statusCode: response.status, httpVersion: nil, headerFields: nil))
+            )
         }
         let json: String
         switch url.path {
@@ -167,6 +212,63 @@ struct ParentsLifecycleTests {
         #expect(paths.filter { $0 == "/Sessions/Logout" }.count == 1)
     }
 
+    @Test(arguments: ["success", "wrongAccount", "storageFailure", "background"])
+    func `password unlock preserves saved pairing and retires only the correct session`(_ scenario: String) async throws {
+        let storage = MemoryCredentials(), suspension = Suspension()
+        let original = try credential()
+        try storage.write(original, account: "jellyfin")
+        try storage.write(ParentServiceConnection(
+            server: original.server,
+            serverID: original.serverID,
+            adultUserID: original.userID,
+            token: "synthetic-parent-pairing"
+        ), account: "parentService")
+        let savedPairing = storage.data["parentService"]
+        let savedJellyfin = storage.data["jellyfin"]
+        let transport = SyntheticTransport(
+            suspension: suspension,
+            suspendedPath: scenario == "background" ? "/Users/AuthenticateByName" : nil
+        )
+        let userID = scenario == "wrongAccount" ? "other-adult" : "adult"
+        await transport.setResponse(
+            path: "/Users/AuthenticateByName",
+            json: #"{"AccessToken":"replacement-token","ServerId":"family","User":{"Id":"USER-ID","Name":"Synthetic adult","Policy":{"IsAdministrator":true}}}"#
+                .replacingOccurrences(of: "USER-ID", with: userID)
+        )
+        await transport.setResponse(
+            path: "/Users/Me",
+            json: #"{"Id":"USER-ID","Name":"Synthetic adult","Policy":{"IsAdministrator":true}}"#
+                .replacingOccurrences(of: "USER-ID", with: userID)
+        )
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        storage.rejectWrites = scenario == "storageFailure"
+        model.password = "synthetic-adult-password"
+        let unlocking = Task { await model.unlockWithPassword() }
+        if scenario == "background" {
+            await suspension.waitUntilEntered()
+            model.lock()
+            await suspension.release()
+        }
+        await unlocking.value
+
+        #expect(model.password.isEmpty && !model.busy)
+        #expect(storage.data["parentService"] == savedPairing)
+        let logoutAuthorizations = await transport.logoutAuthorizations
+        if scenario == "success" {
+            #expect(!model.locked && model.error == nil)
+            #expect(model.credential?.token == "replacement-token")
+            #expect(try storage.read("jellyfin", as: ParentCredential.self)?.token == "replacement-token")
+            #expect(model.controls != nil)
+            #expect(logoutAuthorizations == ["MediaBrowser Token=\"synthetic\""])
+        } else {
+            #expect(model.locked)
+            #expect(model.credential?.token == original.token)
+            #expect(storage.data["jellyfin"] == savedJellyfin)
+            #expect(logoutAuthorizations == ["MediaBrowser Token=\"replacement-token\""])
+            #expect(model.error != nil || scenario == "background")
+        }
+    }
+
     @Test
     func `a late device authentication result cannot unlock after backgrounding`() async throws {
         let storage = MemoryCredentials(), suspension = Suspension(), transport = SyntheticTransport()
@@ -234,6 +336,162 @@ struct ParentsLifecycleTests {
     }
 
     @Test
+    func `valid parent pairing survives an unavailable optional profile endpoint`() async throws {
+        let storage = MemoryCredentials(), transport = SyntheticTransport()
+        try storage.write(credential(), account: "jellyfin")
+        await transport.setCapabilities(["show-availability-v1", "daily-budget-v1"])
+        await transport.setResponse(
+            path: "/api/parent/v1/dashboard",
+            json: #"{"serverID":"family","children":[{"id":"kids","name":"Kids"}],"televisions":[],"birdVideos":[],"shows":[{"id":"bear","name":"Little Bear","childUserID":"kids","enabled":true,"revision":1}]}"#
+        )
+        await transport.setResponse(path: "/api/parent/v1/profiles/kids/settings", json: "{}", status: 404)
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-scoped-parent-token"
+
+        await model.connectControls()
+
+        let stored = try storage.read("parentService", as: ParentServiceConnection.self)
+        let saved = try #require(stored)
+        #expect(saved.serverID == "family" && saved.adultUserID == "adult")
+        #expect(saved.server.url.absoluteString == "http://127.0.0.1:9")
+        #expect(saved.token == "synthetic-scoped-parent-token")
+        #expect(model.controlToken.isEmpty)
+        #expect(model.controls != nil && model.canChangeShows)
+        #expect(model.dashboard?.children.first?.id == "kids")
+        #expect(model.dashboard?.shows.first?.id == "bear")
+        #expect(model.selectedChild == "kids")
+        #expect(model.profile == nil)
+        #expect(model.error == nil && !model.needsRefresh)
+        let paths = await transport.paths
+        #expect(paths.contains("/api/parent/v1/profiles/kids/settings"))
+    }
+
+    @Test(arguments: ["remote", "budget"], ["revision", "repeat", "other", "500", "network"])
+    func `basic commands retry only one exact revision conflict with fresh scope`(_ target: String, _ failure: String) async throws {
+        let storage = MemoryCredentials(), transport = SyntheticTransport()
+        try storage.write(credential(), account: "jellyfin")
+        await transport.setCapabilities(["remote-control-v1", "daily-budget-v1"])
+        await transport.setResponse(
+            path: "/api/parent/v1/dashboard",
+            json: #"{"serverID":"family","children":[{"id":"kids","name":"Kids"}],"televisions":[{"id":"tv","name":"TV","childUserID":"kids","online":true,"canEnforceDeadline":true,"revision":FRESH-REVISION,"countdown":null}],"birdVideos":[],"shows":[]}"#
+        )
+        await transport.setResponse(
+            path: "/api/parent/v1/profiles/kids/settings",
+            json: #"{"childUserID":"kids","revision":FRESH-REVISION,"timeZone":"America/Los_Angeles","routines":[],"budget":{"enabled":false,"dailyMinutes":60,"usedSeconds":0,"bonusSeconds":0,"localDate":"2026-10-20"},"shuffle":{"preferUnwatched":false,"repeatCooldownDays":0,"preferredShowIDs":[]},"excludedEpisodeIDs":[]}"#
+        )
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-parent-token"
+        await model.connectControls()
+        let draft = try #require(model.profile)
+        let revisionError = #"{"error":"revision_conflict"}"#
+        switch failure {
+        case "revision": await transport.setMutationFailures([(409, revisionError)])
+        case "repeat": await transport.setMutationFailures([(409, revisionError), (409, revisionError)])
+        case "other": await transport.setMutationFailures([(409, #"{"error":"active_intent_exists"}"#)])
+        case "500": await transport.setMutationFailures([(500, "{}")])
+        default: await transport.setMutationFailures([(0, "")])
+        }
+        if target == "remote" {
+            await model.remote(.pause)
+        } else {
+            await model.saveBudget(enabled: true, minutes: 25, profile: draft)
+        }
+
+        let requests = await transport.mutationRequests
+        let expectedCount = ["revision", "repeat"].contains(failure) ? 2 : 1
+        #expect(requests.count == expectedCount)
+        var commandIDs: [String] = [], revisions: [Int] = []
+        for request in requests {
+            let body = try #require(request.httpBody)
+            let fields = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            let commandID = try #require(fields["commandID"] as? String)
+            commandIDs.append(commandID)
+            try revisions.append(#require(fields["expectedRevision"] as? Int))
+            #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == commandID)
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer synthetic-parent-token")
+            #expect(fields["childUserID"] as? String == "kids")
+            if target == "remote" {
+                #expect(request.url?.path == "/api/parent/v1/remote")
+                #expect(fields["deviceID"] as? String == "tv")
+                #expect(fields["action"] as? String == "pause")
+            } else {
+                #expect(request.url?.path == "/api/parent/v1/budgets")
+                #expect(fields["enabled"] as? Bool == true)
+                #expect(fields["dailyMinutes"] as? Int == 25)
+            }
+        }
+        #expect(Set(commandIDs).count == requests.count)
+        #expect(revisions.first.map { $0 > draft.revision } == true)
+        if requests.count == 2 {
+            #expect(revisions[1] > revisions[0])
+        }
+        if failure == "revision" {
+            #expect(model.error == nil && !model.needsRefresh)
+            #expect(model.lastCommand?.status == "persisted")
+        } else {
+            #expect(model.error != nil && model.needsRefresh)
+            #expect(model.lastCommand == nil)
+        }
+    }
+
+    @Test
+    func `an enforcement tap during a refresh is explained and can be retried when idle`() async throws {
+        let storage = MemoryCredentials(), transport = SyntheticTransport()
+        try storage.write(credential(), account: "jellyfin")
+        await transport.setCapabilities(["receiver-enforcement-v1"])
+        await transport.setResponse(
+            path: "/api/parent/v1/dashboard",
+            json: #"{"serverID":"family","children":[{"id":"kids","name":"Kids"}],"televisions":[{"id":"tv","name":"TV","childUserID":"kids","online":true,"canEnforceDeadline":true,"enforcementEnabled":false,"revision":1,"countdown":null}],"birdVideos":[],"shows":[]}"#
+        )
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-parent-token"
+        await model.connectControls()
+        model.busy = true // A read started after the UI rendered an enabled switch.
+        await model.setEnforcement(enabled: true)
+        #expect(await transport.mutationRequests.isEmpty)
+        #expect(model.notice?.contains("still in progress") == true)
+        #expect(model.chosenTV?.enforcementEnabled == false)
+        model.busy = false
+        await model.setEnforcement(enabled: true)
+        #expect(await transport.mutationRequests.count == 1)
+        #expect(model.error == nil && !model.needsRefresh)
+        #expect(model.lastCommand?.status == "persisted")
+        #expect(model.chosenTV?.enforcementEnabled == false) // The receipt cannot replace server state.
+    }
+
+    @Test
+    func `backgrounding after a rejected command prevents its revision retry`() async throws {
+        let storage = MemoryCredentials(), suspension = Suspension()
+        try storage.write(credential(), account: "jellyfin")
+        let transport = SyntheticTransport(suspension: suspension, suspendedPath: "/api/parent/v1/remote")
+        await transport.setCapabilities(["remote-control-v1"])
+        await transport.setResponse(
+            path: "/api/parent/v1/dashboard",
+            json: #"{"serverID":"family","children":[{"id":"kids","name":"Kids"}],"televisions":[{"id":"tv","name":"TV","childUserID":"kids","online":true,"canEnforceDeadline":true,"revision":1,"countdown":null}],"birdVideos":[],"shows":[]}"#
+        )
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-parent-token"
+        await model.connectControls()
+        await transport.setMutationFailures([(409, #"{"error":"revision_conflict"}"#)])
+        let command = Task { await model.remote(.pause) }
+        await suspension.waitUntilEntered()
+        model.lock()
+        await suspension.release()
+        await command.value
+        #expect(await transport.mutationRequests.count == 1)
+        #expect(model.locked && model.needsRefresh)
+        #expect(model.lastCommand == nil)
+    }
+
+    @Test
     func `unknown mutation cancellation still requires fresh state`() async {
         let model = ParentsModel(credentialStore: MemoryCredentials(), transport: SyntheticTransport(), authenticateDevice: { false })
         await model.perform { throw CancellationError() }
@@ -284,5 +542,73 @@ struct ParentsLifecycleTests {
         await model.pollControls()
         #expect(!model.needsRefresh && !model.canChangeShows)
         #expect(model.capabilities?.features == [])
+    }
+
+    @Test
+    func `expired parent service can be replaced without losing Jellyfin or replaying commands`() async throws {
+        let storage = MemoryCredentials(), transport = SyntheticTransport()
+        try storage.write(credential(), account: "jellyfin")
+        let originalJellyfin = storage.data["jellyfin"]
+        await transport.setCapabilities(["show-availability-v1"])
+        let model = ParentsModel(credentialStore: storage, transport: transport, authenticateDevice: { false })
+        model.locked = false
+        model.controlServerText = "http://127.0.0.1:9"
+        model.controlToken = "synthetic-expired-service"
+        await model.connectControls()
+        #expect(model.canChangeShows)
+
+        await transport.setCapabilities([], status: 401)
+        await model.pollControls()
+        #expect(model.signedIn && !model.locked)
+        #expect(model.controls == nil && model.capabilities == nil && model.dashboard == nil)
+        #expect(!model.canChangeShows)
+        #expect(storage.data["jellyfin"] == originalJellyfin)
+        let expired = try storage.read("parentService", as: ParentServiceConnection.self)
+        #expect(expired?.token == "synthetic-expired-service")
+
+        await model.refresh()
+        #expect(model.controls == nil && !model.canChangeShows)
+        #expect(model.error != nil)
+        #expect(storage.data["jellyfin"] == originalJellyfin)
+
+        await transport.setCapabilities(["show-availability-v1"])
+        model.controlToken = "synthetic-replacement-service"
+        await model.connectControls()
+        #expect(model.controls != nil && model.canChangeShows)
+        #expect(model.error == nil && !model.needsRefresh)
+        #expect(model.controlToken.isEmpty)
+        #expect(storage.data["jellyfin"] == originalJellyfin)
+        let replacement = try storage.read("parentService", as: ParentServiceConnection.self)
+        #expect(replacement?.token == "synthetic-replacement-service")
+        let paths = await transport.paths
+        #expect(!paths.contains("/Users/AuthenticateByName"))
+        #expect(!paths.contains("/Sessions/Logout"))
+        #expect(paths.filter { $0.hasPrefix("/api/parent/") }.allSatisfy {
+            ["/api/parent/v1/capabilities", "/api/parent/v1/dashboard"].contains($0)
+        })
+    }
+
+    @Test
+    func `cached health becomes unknown at expiry or an unconfirmed clock`() throws {
+        let model = ParentsModel(credentialStore: MemoryCredentials(), transport: SyntheticTransport(), authenticateDevice: { false })
+        let observed = Date(timeIntervalSince1970: 1_700_000_000)
+        #expect(!model.healthIsCurrent(at: observed))
+        let data = Data(
+            #"{"observedAt":"2023-11-14T22:13:20Z","jellyfin":"healthy","worker":"idle","storageFreeBytes":1024,"pendingJobs":2,"failedJobs":0,"televisions":[{"id":"tv","name":"Television","online":true,"lastSeen":"2023-11-14T22:13:20Z"}],"issues":[]}"#
+                .utf8
+        )
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        model.serverHealth = try decoder.decode(ParentServerHealth.self, from: data)
+        #expect(model.healthIsCurrent(at: observed))
+        #expect(model.healthIsCurrent(at: observed.addingTimeInterval(60)))
+        #expect(!model.healthIsCurrent(at: observed.addingTimeInterval(60.001)))
+        #expect(!model.healthIsCurrent(at: observed.addingTimeInterval(-0.001)))
+        #expect(!model.healthIsCurrent(at: Date(timeIntervalSince1970: .infinity)))
+        // Presentation expiry must preserve the historical observation and
+        // cannot probe the server, change credentials, or issue a repair.
+        #expect(model.serverHealth?.observedAt == observed)
+        #expect(model.serverHealth?.pendingJobs == 2)
+        #expect(model.serverHealth?.televisions.first?.online == true)
     }
 }

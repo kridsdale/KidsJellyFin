@@ -115,8 +115,9 @@ public enum KidsEligibility {
         case .movie: return item.libraryID == binding.moviesID
         case .series: return item.libraryID == binding.showsID
         case .episode:
+            guard let season = item.season, let episode = item.episode else { return false }
             return item.libraryID == binding.showsID && !(item.seriesID ?? "").isEmpty
-                && (item.season ?? 0) > 0 && (item.episode ?? 0) > 0
+                && season > 0 && episode >= 0
         }
     }
 
@@ -129,9 +130,9 @@ public enum KidsEligibility {
             guard numbers.insert("\(item.season!):\(item.episode!)").inserted,
                   ids.insert(item.id).inserted else { throw KidsContractError.ambiguousEpisodes }
         }
-        // Missing episode numbers need adult review instead of guessed ordering.
+        // Explicit episode zero keeps its indexed order; missing/negative numbers need adult review.
         if items.contains(where: { $0.kind == .episode && $0.seriesID == showID && $0.libraryID == binding.showsID
-                && ($0.season == nil || ($0.season ?? 0) < 0 || (($0.season ?? 0) > 0 && ($0.episode ?? 0) <= 0))
+                && ($0.season == nil || ($0.season ?? 0) < 0 || (($0.season ?? 0) > 0 && ($0.episode == nil || ($0.episode ?? 0) < 0)))
         }) {
             throw KidsContractError.ambiguousEpisodes
         }

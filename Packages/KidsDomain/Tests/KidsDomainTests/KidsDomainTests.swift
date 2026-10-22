@@ -49,7 +49,7 @@ func `eligibility rejects wrong library type specials and extras`() throws {
         binding: binding
     ) }
     #expect(throws: KidsContractError.ambiguousEpisodes) { try KidsEligibility.episodes(
-        [episode("a"), episode("bad", number: 0)],
+        [episode("a"), episode("bad", number: -1)],
         showID: "show",
         binding: binding
     ) }
@@ -228,4 +228,33 @@ func `parent Set Next on the playing episode survives old checkpoints and comple
     try state.began(item: episodes[0], mode: .ordered, showID: "show")
     state.checkpoint(item: episodes[0], mode: .ordered, seconds: 10)
     #expect(try state.orderedNext(showID: "show", episodes: episodes).1 == 10)
+}
+
+@Test
+func `explicit episode zero stays in indexed order and can be the sole episode`() throws {
+    let zero = episode("zero", number: 0)
+    #expect(KidsEligibility.permits(zero, binding: binding))
+    #expect(try KidsEligibility.episodes([episode("one"), zero], showID: "show", binding: binding).map(\.id) == ["zero", "one"])
+    #expect(try KidsEligibility.episodes([zero], showID: "show", binding: binding) == [zero])
+    var state = KidsState(binding: binding)
+    let ordered = try KidsEligibility.episodes([zero, episode("one")], showID: "show", binding: binding)
+    #expect(try state.orderedNext(showID: "show", episodes: ordered).0.id == "zero")
+    try state.began(item: zero, mode: .ordered, showID: "show")
+    state.checkpoint(item: zero, mode: .ordered, seconds: 20)
+    #expect(try state.orderedNext(showID: "show", episodes: ordered).1 == 20)
+    #expect(try state.finished(item: zero, mode: .ordered, episodes: ordered))
+    #expect(try state.orderedNext(showID: "show", episodes: ordered).0.id == "one")
+}
+
+@Test
+func `episode zero does not admit missing numbering specials duplicates or other libraries`() throws {
+    var missing = episode("missing")
+    missing.episode = nil
+    let zero = episode("zero", number: 0)
+    #expect(!KidsEligibility.permits(missing, binding: binding))
+    #expect(!KidsEligibility.permits(episode("special", season: 0, number: 0), binding: binding))
+    #expect(!KidsEligibility.permits(episode("other", number: 0, library: "other"), binding: binding))
+    for rejected in [[zero, missing], [zero, episode("duplicate", number: 0)], [zero, episode("negative", number: -1)]] {
+        #expect(throws: KidsContractError.ambiguousEpisodes) { try KidsEligibility.episodes(rejected, showID: "show", binding: binding) }
+    }
 }

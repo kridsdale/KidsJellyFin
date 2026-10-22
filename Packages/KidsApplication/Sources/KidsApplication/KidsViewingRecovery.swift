@@ -59,9 +59,8 @@ public extension KidsAppModel {
             }
         }
         guard unlocked, viewingRuntime === runtime, self.binding == binding, !Task.isCancelled else { throw KidsContractError.denied }
-        _ = try runtime.admission.archiveForEpochRecovery(events: runtime.events)
+        _ = try runtime.admission.archiveForEpochRecovery()
         let fresh = try runtime.freshAfterRecovery()
-        runtime.events.removeAll()
         // Fence every delayed command/monitor callback by runtime identity.
         // Only a fresh instance may fetch new policy after the archive.
         viewingRuntime = fresh

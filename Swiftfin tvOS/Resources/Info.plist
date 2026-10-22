@@ -4,6 +4,8 @@
 <dict>
 	<key>KidsEvidenceImplementationRevision</key>
 	<string>$(KIDS_EVIDENCE_REVISION)</string>
+	<key>KidsReleaseVersion</key>
+	<string>$(KIDS_RELEASE_VERSION)</string>
 	<key>CFBundleDisplayName</key>
 	<string>KidsJellyFin</string>
 	<key>CFBundleExecutable</key>
@@ -42,7 +44,9 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
-	<key>NSAppTransportSecurity</key>
+	<key>NSBonjourServices</key><array><string>_kidsparents._tcp</string><string>_kids-auth._tcp</string></array>
+    <key>NSLocalNetworkUsageDescription</key><string>Find your family Jellyfin server and parent controls on your home network.</string>
+    <key>NSAppTransportSecurity</key>
 	<dict>
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>

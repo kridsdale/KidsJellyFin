@@ -137,6 +137,31 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         }
     }
 
+    private final class AdvancingClockDriver: KidsPlaybackDriver {
+        var current = KidsPlaybackFrame()
+        var next: KidsPlaybackFrame?
+        var frame: KidsPlaybackFrame {
+            let observed = current
+            if let next {
+                current = next
+                self.next = nil
+            }
+            return observed
+        }
+
+        let subject = PassthroughSubject<KidsPlaybackDriverEvent, Never>()
+        var events: AnyPublisher<KidsPlaybackDriverEvent, Never> {
+            subject.eraseToAnyPublisher()
+        }
+
+        func start() {}
+        func beginReporting() {}
+        func togglePlayPause() {}
+        func pause() {}
+        func seek(seconds: Double) {}
+        func stop() async {}
+    }
+
     private func controller(_ item: KidsItem, driver: any KidsPlaybackDriver, model: KidsAppModel) -> KidsPlaybackController {
         KidsPlaybackController(item: item, title: item, mode: .movie, position: 0, episodes: [], driver: driver, delegate: model)
     }
@@ -146,6 +171,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         var policies: [String]
         var eventStatuses: [Int]
         var unconfirmedSessions: [UUID: String] = [:]
+        var quarantinedDispositions: [UUID: UUID] = [:]
         let holdPolicy: Bool
         let conflictCode: String
         let policyEntered = AsyncStream<Void>.makeStream()
@@ -167,6 +193,10 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             unconfirmedSessions[event.eventID] = sessionID ?? event.playbackSessionID
         }
 
+        func markQuarantined(_ event: ReceiverEvent, dispositionID: UUID = UUID()) {
+            quarantinedDispositions[event.eventID] = dispositionID
+        }
+
         func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
             requests.append(request)
             let status: Int
@@ -177,10 +207,17 @@ final class KidsApplicationBoundaryTests: XCTestCase {
                 if status == 409 {
                     data = Data("{\"error\":\"\(conflictCode)\"}".utf8)
                 } else {
-                    var receipt = ["commandID": event.eventID.uuidString, "status": "persisted"]
+                    var receipt: [String: Any] = ["commandID": event.eventID.uuidString, "status": "persisted"]
                     if let session = unconfirmedSessions[event.eventID] {
                         receipt["evidenceDisposition"] = "unconfirmed"
                         receipt["unconfirmedPlaybackSessionID"] = session
+                    }
+                    if let disposition = quarantinedDispositions[event.eventID] {
+                        receipt["evidenceDisposition"] = "quarantined"
+                        receipt["unconfirmedPlaybackSessionID"] = event.playbackSessionID
+                        receipt["dispositionID"] = disposition.uuidString
+                        receipt["usageCredited"] = false
+                        receipt["unknownUsagePreserved"] = true
                     }
                     data = try JSONSerialization.data(withJSONObject: receipt)
                 }
@@ -425,6 +462,91 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             }
         }
         return (model, accounts, configuration, directory)
+    }
+
+    func testRecoveringAmbientRetiresOnceAndExhaustedAttemptsStayQuiet() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let controlID = UUID()
+        var object = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(
+            policyJSON(model, enabled: true, revision: 1, commandID: controlID).utf8
+        )) as? [String: Any])
+        object["birdItemID"] = "bird"
+        object["deadline"] = object["serverTime"]
+        object["viewingAllowed"] = false
+        object["policyControl"] = ["commandID": controlID.uuidString, "kind": "countdown"]
+        let policyData = try JSONSerialization.data(withJSONObject: object)
+        let policy = try XCTUnwrap(String(data: policyData, encoding: .utf8))
+        let transport = ReceiverTransport(policies: [policy])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        model.ambientMode = true
+        model.viewingHeld = true
+        runtime.ambientControlID = controlID
+        runtime.ambientAttempts = 3
+        let bird = KidsItem(id: "bird", name: "Birds", kind: .movie, libraryID: "movies")
+        let driver = AdmissionDriver()
+        let ambient = controller(bird, driver: driver, model: model)
+        ambient.allowsCheckpoints = false
+        ambient.recovery = true
+        runtime.ambientSessionID = ambient.id
+        model.activePlayback = ambient
+        model.state?.movies["normal-movie"] = KidsProgress(itemID: "normal-movie", seconds: 42)
+        model.state?.session = KidsSession(showID: "normal-show", mode: .ordered, limit: 2)
+        let originalState = model.state
+        let requestsBefore = await transport.requests.count
+
+        await model.tickViewingAmbient(runtime, at: DispatchTime.now().uptimeNanoseconds)
+        await model.tickViewingAmbient(runtime, at: DispatchTime.now().uptimeNanoseconds)
+
+        XCTAssertNil(model.activePlayback)
+        XCTAssertEqual(driver.stops, 1)
+        XCTAssertEqual(runtime.events.filter { $0.kind == .ambientFailed }.count, 1)
+        XCTAssertEqual(runtime.events.last?.commandID, controlID)
+        XCTAssertEqual(runtime.ambientAttempts, 3)
+        XCTAssertFalse(runtime.ambientStarting)
+        XCTAssertNil(runtime.ambientTask)
+        XCTAssertTrue(model.ambientMode)
+        XCTAssertTrue(model.viewingHeld)
+        XCTAssertEqual(model.state, originalState)
+        let requestsAfter = await transport.requests.count
+        XCTAssertEqual(requestsAfter, requestsBefore)
+
+        // A replacement normal controller cannot inherit the failed ambient ID.
+        let replacementDriver = AdmissionDriver()
+        let replacement = controller(bird, driver: replacementDriver, model: model)
+        replacement.recovery = true
+        model.activePlayback = replacement
+        await model.tickViewingAmbient(runtime, at: DispatchTime.now().uptimeNanoseconds)
+        XCTAssertTrue(model.activePlayback === replacement)
+        XCTAssertEqual(replacementDriver.stops, 0)
+        XCTAssertEqual(runtime.events.filter { $0.kind == .ambientFailed }.count, 1)
+        model.activePlayback = nil
+    }
+
+    func testPolicyRefreshRetainsPermittedEpisodeMetadataAndAppliesCurrentBlocks() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let allowed = KidsItem(
+            id: "allowed", name: "Allowed", kind: .episode, libraryID: "shows",
+            seriesID: "show", season: 1, episode: 1
+        )
+        let blocked = KidsItem(
+            id: "blocked", name: "Blocked", kind: .episode, libraryID: "shows",
+            seriesID: "show", season: 1, episode: 2
+        )
+        model.episodeCache["show"] = [allowed, blocked]
+        let policy = policyJSON(model, enabled: true, revision: 1, commandID: UUID())
+            .replacingOccurrences(of: "\"blockedEpisodeIDs\":[]", with: "\"blockedEpisodeIDs\":[\"blocked\"]")
+        let transport = ReceiverTransport(policies: [policy])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+
+        try await model.synchronizeViewingPolicy(runtime)
+
+        XCTAssertEqual(model.episodeCache["show"], [allowed])
+        let binding = try XCTUnwrap(model.binding)
+        XCTAssertTrue(model.permitsViewing(allowed, binding: binding))
+        XCTAssertFalse(model.permitsViewing(blocked, binding: binding))
     }
 
     func testGrantAdmissionBrowsesWithoutIntentAndRequiresBoundPolicyBeforeStart() async throws {
@@ -734,6 +856,192 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         XCTAssertEqual(try Data(contentsOf: url), corrupt)
     }
 
+    private func admissionFile(in directory: URL) throws -> URL {
+        let files = try XCTUnwrap(FileManager.default.enumerator(at: directory, includingPropertiesForKeys: nil))
+        return try XCTUnwrap(files.allObjects.compactMap { $0 as? URL }.first {
+            $0.pathExtension == "json" && $0.path.contains("/Admissions/") && !$0.lastPathComponent.hasPrefix("epoch-recovery-")
+        })
+    }
+
+    func testUnknownUsageReceiptReplaysExactFIFOAfterRuntimeRestart() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let transport = ReceiverTransport(
+            policies: [policyJSON(model, enabled: true, revision: 4, commandID: UUID())],
+            eventStatuses: [500, 200, 200]
+        )
+        let original = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = original
+        let session = UUID().uuidString
+        let reports = [
+            ReceiverEvent(
+                deviceID: configuration.deviceID.uuidString,
+                childUserID: configuration.childUserID,
+                policyRevision: 2,
+                playbackSessionID: session,
+                itemID: "movie",
+                kind: .progress,
+                positionSeconds: 7.195,
+                elapsedPlayingSeconds: 0.01200000000000001
+            ),
+            ReceiverEvent(
+                deviceID: configuration.deviceID.uuidString,
+                childUserID: configuration.childUserID,
+                policyRevision: 2,
+                playbackSessionID: session,
+                itemID: "movie",
+                kind: .stopped,
+                positionSeconds: 7.213
+            )
+        ]
+        for event in reports {
+            try original.admission.appendEvent(event)
+        }
+        do { try await model.synchronizeViewingPolicy(original)
+            XCTFail("Unknown receipt must retain exact evidence")
+        } catch { XCTAssertEqual(error as? ParentControlError, .http(500)) }
+        let restarted = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        XCTAssertEqual(restarted.events, reports)
+        XCTAssertNil(restarted.lease.policy)
+        XCTAssertNil(restarted.admittedIntentID)
+        model.viewingRuntime = restarted
+        try await model.synchronizeViewingPolicy(restarted)
+        let requests = await transport.requests
+        XCTAssertEqual(requests[0].httpBody, requests[1].httpBody)
+        XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Idempotency-Key"), requests[1].value(forHTTPHeaderField: "Idempotency-Key"))
+        let replayed = try requests.prefix(3).map { try JSONDecoder().decode(ReceiverEvent.self, from: XCTUnwrap($0.httpBody)) }
+        XCTAssertEqual(replayed, [reports[0], reports[0], reports[1]])
+        XCTAssertEqual(requests[3].httpMethod, "GET")
+        XCTAssertFalse(restarted.events.contains { reports.map(\.eventID).contains($0.eventID) })
+        let file = try admissionFile(in: directory)
+        XCTAssertEqual(try (FileManager.default.attributesOfItem(atPath: file.path)[.posixPermissions] as? NSNumber)?.intValue, 0o600)
+        XCTAssertFalse(try String(decoding: Data(contentsOf: file), as: UTF8.self).contains(configuration.token))
+    }
+
+    func testUsageFIFORejectsOutOfOrderAckAndSurvivesAcknowledgementWriteFailure() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        let events = (0 ..< 2).map { _ in ReceiverEvent(
+            deviceID: configuration.deviceID.uuidString,
+            childUserID: configuration.childUserID,
+            policyRevision: 2,
+            kind: .heartbeat
+        ) }
+        for event in events {
+            try journal.appendEvent(event)
+        }
+        let file = try admissionFile(in: directory), before = try Data(contentsOf: file)
+        XCTAssertThrowsError(try journal.acknowledgeEvent(events[1].eventID))
+        XCTAssertEqual(try Data(contentsOf: file), before)
+        let folder = file.deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        XCTAssertThrowsError(try journal.acknowledgeEvent(events[0].eventID))
+        XCTAssertEqual(journal.events, events)
+        XCTAssertEqual(try Data(contentsOf: file), before)
+        try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
+        let restarted = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        XCTAssertEqual(restarted.events, events)
+        try restarted.acknowledgeEvent(events[0].eventID)
+        XCTAssertEqual(try KidsAdmissionJournal(configuration: configuration, directory: directory).events, [events[1]])
+    }
+
+    func testUsageFIFOEnforcesCapacityIdentityScopeAndStoredSchema() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        let event = ReceiverEvent(
+            deviceID: configuration.deviceID.uuidString,
+            childUserID: configuration.childUserID,
+            policyRevision: 2,
+            kind: .heartbeat
+        )
+        try journal.appendEvent(event)
+        XCTAssertThrowsError(try journal.appendEvent(event))
+        let foreign = ReceiverEvent(
+            deviceID: configuration.deviceID.uuidString,
+            childUserID: "another-child",
+            policyRevision: 2,
+            kind: .heartbeat
+        )
+        XCTAssertThrowsError(try journal.appendEvent(foreign))
+        for _ in 1 ..< 128 {
+            try journal.appendEvent(ReceiverEvent(
+                deviceID: configuration.deviceID.uuidString,
+                childUserID: configuration.childUserID,
+                policyRevision: 2,
+                kind: .heartbeat
+            ))
+        }
+        let file = try admissionFile(in: directory), full = try Data(contentsOf: file)
+        XCTAssertThrowsError(try journal.appendEvent(ReceiverEvent(
+            deviceID: configuration.deviceID.uuidString,
+            childUserID: configuration.childUserID,
+            policyRevision: 2,
+            kind: .heartbeat
+        )))
+        XCTAssertEqual(try Data(contentsOf: file), full)
+        var state = try XCTUnwrap(JSONSerialization.jsonObject(with: full) as? [String: Any])
+        state.removeValue(forKey: "events")
+        let missing = try JSONSerialization.data(withJSONObject: state)
+        try missing.write(to: file)
+        XCTAssertThrowsError(try KidsAdmissionJournal(configuration: configuration, directory: directory))
+        XCTAssertEqual(try Data(contentsOf: file), missing)
+        state["events"] = try [JSONSerialization.jsonObject(with: JSONEncoder().encode(foreign))]
+        let wrong = try JSONSerialization.data(withJSONObject: state)
+        try wrong.write(to: file)
+        XCTAssertThrowsError(try KidsAdmissionJournal(configuration: configuration, directory: directory))
+        XCTAssertEqual(try Data(contentsOf: file), wrong)
+    }
+
+    func testV1AdmissionMigrationRetainsUnknownIntentWithoutInventingReports() throws {
+        let (_, _, configuration, directory) = try receiverHarness(activated: true)
+        let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        let command = UUID()
+        try journal.stage(.init(commandID: command, expectedRevision: 2, sessionID: "controller", itemID: "movie"))
+        let file = try admissionFile(in: directory)
+        var v1 = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        v1["version"] = 1
+        v1.removeValue(forKey: "events")
+        try JSONSerialization.data(withJSONObject: v1).write(to: file)
+        let migrated = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        XCTAssertEqual(migrated.intent?.commandID, command)
+        XCTAssertTrue(migrated.intent?.abandoned == true)
+        XCTAssertEqual(migrated.surrender?.intentID, command)
+        XCTAssertTrue(migrated.events.isEmpty)
+        let state = try XCTUnwrap(JSONSerialization.jsonObject(with: Data(contentsOf: file)) as? [String: Any])
+        XCTAssertEqual(state["version"] as? Int, 2)
+        XCTAssertEqual((state["events"] as? [Any])?.count, 0)
+    }
+
+    func testEventPersistenceFailureHoldsPlaybackAndRetainsEarlierEvidence() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        let previous = runtime.events
+        let folder = try admissionFile(in: directory).deletingLastPathComponent()
+        try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.202
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        XCTAssertTrue(runtime.reportingFault)
+        XCTAssertEqual(runtime.events, previous)
+        XCTAssertNil(runtime.announcedSessionID)
+        await model.tickViewingAdmission(runtime, at: DispatchTime.now().uptimeNanoseconds)
+        XCTAssertTrue(model.viewingHeld)
+        XCTAssertNil(model.activePlayback)
+        XCTAssertEqual(runtime.events, previous)
+    }
+
     func testEpochArchivePreservesPendingActionsAndEvidenceBeforeClearingRetrySlots() throws {
         let (_, _, configuration, directory) = try receiverHarness(activated: true)
         let journal = try KidsAdmissionJournal(configuration: configuration, directory: directory)
@@ -751,7 +1059,8 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             positionSeconds: 4,
             elapsedPlayingSeconds: 1
         )
-        let archive = try journal.archiveForEpochRecovery(events: [report])
+        try journal.appendEvent(report)
+        let archive = try journal.archiveForEpochRecovery()
         let data = try Data(contentsOf: archive)
         let object = try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
         XCTAssertEqual(object["reason"] as? String, "command_epoch_changed")
@@ -769,6 +1078,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         let permissions = try FileManager.default.attributesOfItem(atPath: archive.path)[.posixPermissions] as? NSNumber
         XCTAssertEqual(permissions?.intValue, 0o600)
         XCTAssertNil(journal.intent)
+        XCTAssertTrue(journal.events.isEmpty)
         let restarted = try KidsAdmissionJournal(configuration: configuration, directory: directory)
         XCTAssertNil(restarted.intent)
         XCTAssertNil(restarted.surrender)
@@ -784,7 +1094,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         let folder = file.deletingLastPathComponent()
         try FileManager.default.setAttributes([.posixPermissions: 0o500], ofItemAtPath: folder.path)
         defer { try? FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path) }
-        XCTAssertThrowsError(try journal.archiveForEpochRecovery(events: []))
+        XCTAssertThrowsError(try journal.archiveForEpochRecovery())
         XCTAssertEqual(journal.intent?.commandID, id)
         try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: folder.path)
         let restarted = try KidsAdmissionJournal(configuration: configuration, directory: directory)
@@ -838,7 +1148,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             positionSeconds: 5,
             elapsedPlayingSeconds: 2
         )
-        runtime.events = [event]
+        try runtime.admission.appendEvent(event)
         await transport.setConflict("command_epoch_changed", events: true)
         do { try await model.synchronizeViewingPolicy(runtime)
             XCTFail("Old evidence remains unacknowledged")
@@ -1082,7 +1392,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             positionSeconds: 7,
             elapsedPlayingSeconds: 3
         )
-        runtime.events = [event]
+        try runtime.admission.appendEvent(event)
         do { try await model.synchronizeViewingPolicy(runtime)
             XCTFail("Lost receipt must remain queued")
         } catch { XCTAssertEqual(error as? ParentControlError, .http(500)) }
@@ -1141,7 +1451,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             positionSeconds: 7,
             elapsedPlayingSeconds: 3
         )
-        runtime.events = [event]
+        try runtime.admission.appendEvent(event)
         do { try await model.synchronizeViewingPolicy(runtime)
             XCTFail("A conflict cannot discard usage")
         } catch { XCTAssertEqual(error as? ReceiverEventConflict, ReceiverEventConflict(code: "lease_mismatch")) }
@@ -1204,7 +1514,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
                 kind: .heartbeat,
                 positionSeconds: 7
             )
-            runtime.events = [heartbeat]
+            try runtime.admission.appendEvent(heartbeat)
             if stale.contains(code) {
                 try await model.synchronizeViewingPolicy(runtime)
                 XCTAssertFalse(runtime.events.contains(where: { $0.eventID == heartbeat.eventID }))
@@ -1237,7 +1547,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         let transport = ReceiverTransport(policies: [policy])
         let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
         model.viewingRuntime = runtime
-        runtime.events = (0 ..< 119).map { _ in ReceiverEvent(
+        let queued = (0 ..< 119).map { _ in ReceiverEvent(
             deviceID: configuration.deviceID.uuidString,
             childUserID: "kid",
             policyRevision: 1,
@@ -1246,6 +1556,9 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             kind: .progress,
             positionSeconds: 0
         ) }
+        for event in queued {
+            try runtime.admission.appendEvent(event)
+        }
         try await model.synchronizeViewingPolicy(runtime)
         let acknowledgements = runtime.events.filter { $0.kind == .commandApplied && $0.playbackSessionID == playback.id.uuidString }
         // One acknowledgement belongs to policy release; every executed remote
@@ -1397,6 +1710,455 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         await model.stopPlayback(endSession: false)
     }
 
+    func testDelayedFirstProgressSampleRetainsTheObservedStartBaseline() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.202
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = DispatchTime.now().uptimeNanoseconds
+
+        // The first periodic sample can arrive a second after the real start,
+        // followed by an immediate policy-flush sample. This was observed in
+        // the finite simulator trial: dropping the first interval caused the
+        // server to reject the subsequent positive interval as a position jump.
+        driver.frame.seconds = 1.183
+        model.sampleViewingProgress(runtime, at: base + 1_000_000_000)
+        driver.frame.seconds = 1.195
+        model.sampleViewingProgress(runtime, at: base + 1_012_000_000)
+        driver.frame.paused = true
+        driver.frame.playing = false
+        model.sampleViewingProgress(runtime, at: base + 1_020_000_000)
+
+        let reports = runtime.events.filter { $0.kind == .progress }
+        XCTAssertFalse(reports.isEmpty)
+        let reported = reports.reduce(0) { $0 + $1.elapsedPlayingSeconds }
+        XCTAssertEqual(reported, 0.993, accuracy: 0.02)
+        XCTAssertLessThanOrEqual(reported, 1.02)
+        var previous = try XCTUnwrap(started.positionSeconds)
+        for report in reports {
+            let position = try XCTUnwrap(report.positionSeconds)
+            if report.elapsedPlayingSeconds > 0 {
+                XCTAssertLessThanOrEqual(abs(position - previous - report.elapsedPlayingSeconds), 0.5)
+            }
+            previous = position
+        }
+        XCTAssertEqual(runtime.events.filter { $0.kind == .started }.count, 1)
+        await model.stopPlayback(endSession: false)
+    }
+
+    func testProgressCadenceOvershootDoesNotClipAnObservedIntervalToFiveSeconds() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.803
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = DispatchTime.now().uptimeNanoseconds
+        // Normal timer jitter can make the nominal five-second report become
+        // due on the sixth tick. The observed interval must survive intact;
+        // clipping it to five seconds makes the server correctly reject it.
+        for second in 1 ... 7 {
+            driver.frame.seconds = 0.803 + Double(second)
+            model.sampleViewingProgress(runtime, at: base + UInt64(second) * 999_000_000)
+        }
+        let reports = runtime.events.filter { $0.kind == .progress }
+        XCTAssertGreaterThanOrEqual(reports.count, 2)
+        XCTAssertGreaterThan(try XCTUnwrap(reports.last).elapsedPlayingSeconds, 5.5)
+        var previous = try XCTUnwrap(started.positionSeconds)
+        for report in reports {
+            let position = try XCTUnwrap(report.positionSeconds)
+            XCTAssertLessThanOrEqual(abs(position - previous - report.elapsedPlayingSeconds), 0.5)
+            XCTAssertLessThanOrEqual(report.elapsedPlayingSeconds, 30)
+            previous = position
+        }
+        XCTAssertEqual(reports.reduce(0) { $0 + $1.elapsedPlayingSeconds }, 6.993, accuracy: 0.02)
+        await model.stopPlayback(endSession: false)
+    }
+
+    func testRepeatedVLCClockRetainsWallIntervalUntilPositionAdvances() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.335
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = try XCTUnwrap(runtime.lastFrame).uptime
+        model.sampleViewingProgress(runtime, at: base)
+        // VLC's media clock and our timer need not update on the same tick.
+        // A repeated position followed by a two-second advance is not a seek.
+        let positions = [1.345, 1.345, 3.345, 4.345, 5.345, 6.345]
+        for (index, position) in positions.enumerated() {
+            driver.frame.seconds = position
+            model.sampleViewingProgress(runtime, at: base + 976_128_292 + UInt64(index) * 1_000_000_000)
+        }
+        let report = try XCTUnwrap(runtime.events.last { $0.kind == .progress })
+        XCTAssertEqual(report.elapsedPlayingSeconds, 5.976128292, accuracy: 0.00001)
+        XCTAssertLessThanOrEqual(
+            try abs(XCTUnwrap(report.positionSeconds) - XCTUnwrap(started.positionSeconds) - report.elapsedPlayingSeconds),
+            0.5
+        )
+        await model.stopPlayback(endSession: false)
+    }
+
+    func testStaleSampleCannotReplaceNewerStartPositionAndClock() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.335
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let baseline = try XCTUnwrap(runtime.lastFrame)
+        driver.frame.seconds = 1.345
+        model.sampleViewingProgress(runtime, at: baseline.uptime - 1)
+        XCTAssertEqual(runtime.lastFrame?.position, baseline.position)
+        XCTAssertEqual(runtime.lastFrame?.uptime, baseline.uptime)
+        XCTAssertEqual(runtime.accumulatedPlaying, 0)
+        XCTAssertEqual(runtime.progressSamples.last?.ignoredStaleTimestamp, true)
+        model.sampleViewingProgress(runtime, at: baseline.uptime + 1_010_000_000)
+        XCTAssertEqual(runtime.events.last { $0.kind == .progress }?.elapsedPlayingSeconds ?? -1, 1.01, accuracy: 0.00001)
+        for second in 2 ... 150 {
+            driver.frame.seconds = 0.335 + Double(second)
+            model.sampleViewingProgress(runtime, at: baseline.uptime + UInt64(second) * 1_010_000_000)
+        }
+        XCTAssertEqual(runtime.progressSamples.count, 128)
+        XCTAssertEqual(runtime.progressSamples.first?.ignoredStaleTimestamp, true)
+        XCTAssertEqual(runtime.progressSamples.last?.position, 150.335)
+        await model.stopPlayback(endSession: false)
+    }
+
+    func testQuantizedClockTracePreservesIntervalsWithinObservedWallTime() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.894
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = try XCTUnwrap(runtime.lastFrame).uptime
+        // Anonymous timing/position observations from an unperturbed real run.
+        // Policy flushes sample between periodic ticks, and VLC's clock can
+        // advance in a burst or regress slightly without a user seek.
+        let samples: [(UInt64, Double)] = [
+            (101_546_208, 0.894),
+            (119_474_333, 0.894),
+            (1_133_931_208, 1.9180000000000001),
+            (2_135_085_667, 2.9050000000000002),
+            (3_140_359_750, 3.909),
+            (4_152_757_000, 4.9030000000000005),
+            (5_171_455_458, 5.916),
+            (6_208_328_625, 6.91),
+            (7_254_598_167, 7.927),
+            (7_474_061_167, 7.934),
+            (8_310_027_917, 8.911),
+            (9_371_633_583, 9.894),
+            (10_387_490_833, 10.92),
+            (11_408_559_667, 11.902),
+            (12_414_327_250, 12.931000000000001),
+            (13_423_747_708, 13.897),
+            (13_973_039_000, 14.931000000000001),
+            (14_476_807_708, 14.926),
+            (15_508_710_750, 15.917),
+            (16_571_409_500, 16.936),
+            (17_571_868_167, 17.92),
+            (18_584_819_542, 18.944),
+            (19_608_434_000, 19.92),
+            (19_610_612_458, 19.92),
+        ]
+        for (index, sample) in samples.enumerated() {
+            driver.frame.seconds = sample.1
+            model.sampleViewingProgress(runtime, at: base + sample.0)
+            if [9, 12, 16, 22].contains(index) {
+                model.flushViewingProgress(playback, at: base + sample.0)
+            }
+        }
+        let reports = runtime.events.filter { $0.kind == .progress && $0.elapsedPlayingSeconds > 0 }
+        var previous = try XCTUnwrap(started.positionSeconds)
+        for report in reports {
+            let position = try XCTUnwrap(report.positionSeconds)
+            XCTAssertLessThanOrEqual(abs(position - previous - report.elapsedPlayingSeconds), 0.5)
+            previous = position
+        }
+        let total = reports.reduce(0) { $0 + $1.elapsedPlayingSeconds }
+        XCTAssertGreaterThan(total, 18.9)
+        XCTAssertLessThanOrEqual(total, try Double(XCTUnwrap(samples.last).0) / 1_000_000_000)
+        XCTAssertFalse(runtime.reportingFault)
+        await model.stopPlayback(endSession: false)
+    }
+
+    func testProgressFlushReportsTheSameNativeFrameUsedToMeasureElapsedTime() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = AdvancingClockDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.current.playing = true
+        driver.current.preparing = false
+        driver.current.buffering = false
+        driver.current.seconds = 10
+        driver.current.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = try XCTUnwrap(runtime.lastFrame).uptime
+        model.sampleViewingProgress(runtime, at: base)
+        driver.current.seconds = 11
+        var next = driver.current
+        next.seconds = 12
+        driver.next = next
+        // The native engine can update independently between two getter calls.
+        // The report must use the observation that supplied its elapsed time.
+        model.flushViewingProgress(playback, at: base + 1_000_000_000)
+        let report = try XCTUnwrap(runtime.events.last { $0.kind == .progress })
+        XCTAssertEqual(report.positionSeconds, 11)
+        XCTAssertEqual(report.elapsedPlayingSeconds, 1, accuracy: 0.000001)
+        XCTAssertLessThanOrEqual(
+            try abs(XCTUnwrap(report.positionSeconds) - XCTUnwrap(started.positionSeconds) - report.elapsedPlayingSeconds),
+            0.5
+        )
+        await model.stopPlayback(endSession: false)
+        let stopped = try XCTUnwrap(runtime.events.last { $0.kind == .stopped })
+        XCTAssertEqual(stopped.positionSeconds, 11)
+    }
+
+    func testNativeTerminalClockResetCannotRewindTheFinalUsageReport() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = AdvancingClockDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.current.playing = true
+        driver.current.preparing = false
+        driver.current.seconds = 10
+        driver.current.displayedPictures = 1
+        driver.subject.send(.updated)
+        let base = try XCTUnwrap(runtime.lastFrame).uptime
+        model.sampleViewingProgress(runtime, at: base)
+        driver.current.seconds = 11
+        model.flushViewingProgress(playback, at: base + 1_000_000_000)
+        driver.current.seconds = 0
+        driver.current.playing = false
+        driver.current.terminal = true
+        model.flushViewingProgress(playback, at: base + 2_000_000_000)
+        await model.stopPlayback(endSession: false)
+        let progress = try XCTUnwrap(runtime.events.last { $0.kind == .progress })
+        let stopped = try XCTUnwrap(runtime.events.last { $0.kind == .stopped })
+        XCTAssertEqual(progress.positionSeconds, 11)
+        XCTAssertEqual(progress.elapsedPlayingSeconds, 1, accuracy: 0.000001)
+        XCTAssertEqual(stopped.positionSeconds, progress.positionSeconds)
+        XCTAssertEqual(stopped.elapsedPlayingSeconds, 0)
+        XCTAssertFalse(runtime.reportingFault)
+    }
+
+    func testPolicyFlushClockBurstRetainsObservedPlayingTime() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.888
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = try XCTUnwrap(runtime.lastFrame).uptime
+        // Anonymous timing/position observations from an unperturbed real run.
+        // Policy flushes sample between periodic ticks, and VLC's clock can
+        // advance in a burst or regress slightly without a user seek.
+        let samples: [(UInt64, Double)] = [
+            (432_315_208, 0.894),
+            (685_691_291, 0.894),
+            (1_452_103_416, 1.911),
+            (2_456_122_458, 2.904),
+            (3_493_728_375, 3.88),
+            (4_523_701_250, 4.908),
+            (5_549_490_750, 5.872),
+            (6_593_779_916, 6.904),
+            (7_652_238_750, 7.892),
+            (8_227_281_000, 8.879),
+            (8_693_786_666, 8.873),
+            (9_694_521_750, 9.896),
+            (10_712_428_041, 10.914),
+            (11_766_670_791, 11.9),
+            (12_793_706_250, 12.883000000000001),
+            (13_853_583_375, 13.906),
+            (14_769_940_750, 14.888),
+            (14_885_542_333, 15.917),
+            (15_893_823_750, 16.894),
+        ]
+        for (index, sample) in samples.enumerated() {
+            driver.frame.seconds = sample.1
+            model.sampleViewingProgress(runtime, at: base + sample.0)
+            if [0, 5, 9, 16, 18].contains(index) {
+                model.flushViewingProgress(playback, at: base + sample.0)
+            }
+        }
+        let reports = runtime.events.filter { $0.kind == .progress && $0.elapsedPlayingSeconds > 0 }
+        var previous = try XCTUnwrap(started.positionSeconds)
+        for report in reports {
+            let position = try XCTUnwrap(report.positionSeconds)
+            XCTAssertLessThanOrEqual(abs(position - previous - report.elapsedPlayingSeconds), 0.5)
+            previous = position
+        }
+        let total = reports.reduce(0) { $0 + $1.elapsedPlayingSeconds }
+        XCTAssertGreaterThan(total, 15.5)
+        XCTAssertLessThanOrEqual(total, try Double(XCTUnwrap(samples.last).0) / 1_000_000_000)
+        XCTAssertFalse(runtime.reportingFault)
+        await model.stopPlayback(endSession: false)
+    }
+
+    func testOversizedObservedIntervalHoldsInsteadOfClampingToTheWireLimit() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 31
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let original = runtime.events
+        runtime.accumulatedPlaying = 30.1
+        runtime.lastFrame = (playback.id, 31, DispatchTime.now().uptimeNanoseconds, true)
+        model.flushViewingProgress(playback)
+        XCTAssertTrue(runtime.reportingFault)
+        XCTAssertEqual(runtime.events, original)
+        await model.tickViewingAdmission(runtime, at: DispatchTime.now().uptimeNanoseconds)
+        XCTAssertTrue(model.viewingHeld)
+        XCTAssertNil(model.activePlayback)
+        XCTAssertFalse(runtime.events.contains { $0.kind == .progress })
+    }
+
+    func testPauseBetweenTicksRetainsPastPlayingTimeWithoutChargingPausedSeek() async throws {
+        try await assertPastPlayingIntervalSurvivesTransportHold(buffering: false)
+    }
+
+    func testBufferingBetweenTicksRetainsPastPlayingTimeWithoutChargingHeldSeek() async throws {
+        try await assertPastPlayingIntervalSurvivesTransportHold(buffering: true)
+    }
+
+    private func assertPastPlayingIntervalSurvivesTransportHold(buffering: Bool) async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        driver.stopsImmediately = true
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: true, revision: 2, commandID: UUID())])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        playback.start()
+        driver.frame.playing = true
+        driver.frame.preparing = false
+        driver.frame.buffering = false
+        driver.frame.seconds = 0.803
+        driver.frame.displayedPictures = 1
+        driver.subject.send(.updated)
+        let started = try XCTUnwrap(runtime.events.first { $0.kind == .started })
+        let base = DispatchTime.now().uptimeNanoseconds
+        driver.frame.seconds = 1.803
+        model.sampleViewingProgress(runtime, at: base + 1_000_000_000)
+        driver.frame.seconds = 2.803
+        model.sampleViewingProgress(runtime, at: base + 2_000_000_000)
+        // Playback advances for another fraction before the transport hold.
+        driver.frame.seconds = 3.553
+        driver.frame.playing = false
+        driver.frame.paused = !buffering
+        driver.frame.buffering = buffering
+        model.sampleViewingProgress(runtime, at: base + 3_000_000_000)
+        let reports = runtime.events.filter { $0.kind == .progress }
+        XCTAssertEqual(reports.reduce(0) { $0 + $1.elapsedPlayingSeconds }, 2.75, accuracy: 0.02)
+        var previous = try XCTUnwrap(started.positionSeconds)
+        for report in reports {
+            let position = try XCTUnwrap(report.positionSeconds)
+            XCTAssertLessThanOrEqual(abs(position - previous - report.elapsedPlayingSeconds), 0.5)
+            previous = position
+        }
+        let held = try XCTUnwrap(runtime.events.last)
+        XCTAssertEqual(held.kind, buffering ? .buffering : .paused)
+        XCTAssertEqual(held.elapsedPlayingSeconds, 0)
+        model.sampleViewingProgress(runtime, at: base + 4_000_000_000)
+        driver.frame.seconds += 15
+        model.sampleViewingProgress(runtime, at: base + 5_000_000_000)
+        XCTAssertEqual(runtime.events.filter { $0.kind == .progress }, reports)
+        await model.stopPlayback(endSession: false)
+    }
+
     func testRenewalFlushesAccruedIntervalUnderOriginalGrant() async throws {
         let (model, _, configuration, directory) = try receiverHarness(activated: true)
         let driver = SuspendedDriver()
@@ -1414,7 +2176,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         runtime.accumulatedPlaying = 1.25
         driver.frame.seconds = 9.25
         driver.frame.paused = true
-        runtime.lastFrame = (playback.id, 9.25, DispatchTime.now().uptimeNanoseconds)
+        runtime.lastFrame = (playback.id, 9.25, DispatchTime.now().uptimeNanoseconds, false)
         try await model.synchronizeViewingPolicy(runtime)
         let progress = try XCTUnwrap(runtime.events.first { $0.kind == .progress })
         XCTAssertEqual(progress.elapsedPlayingSeconds, 1.25)
@@ -1474,7 +2236,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             playbackSessionID: UUID().uuidString, itemID: "movie", kind: .commandApplied,
             positionSeconds: 0, commandID: oldControlID
         )
-        runtime.events = [oldAcknowledgement]
+        try runtime.admission.appendEvent(oldAcknowledgement)
         do { try await model.synchronizeViewingPolicy(runtime)
             XCTFail("Transport outage must retain the original evidence")
         } catch { /* Retry the same immutable event after recovery. */ }
@@ -1541,6 +2303,89 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         XCTAssertTrue(usage.allSatisfy { $0.policyRevision == 2 && $0.playbackSessionID == playback.id.uuidString })
         XCTAssertEqual(requests.last?.httpMethod, "GET")
         XCTAssertFalse(runtime.events.contains { $0.kind == .started })
+    }
+
+    func testQuarantinedAuditStopsOriginalControllerBeforeDrainingAndFreshPolicy() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let driver = SuspendedDriver()
+        let playback = controller(KidsItem(id: "movie", name: "Fixture", kind: .movie, libraryID: "movies"), driver: driver, model: model)
+        model.activePlayback = playback
+        let transport = ReceiverTransport(policies: [
+            policyJSON(model, enabled: true, revision: 2, commandID: UUID()),
+            policyJSON(model, enabled: true, revision: 4, commandID: UUID())
+        ])
+        let runtime = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = runtime
+        try await model.synchronizeViewingPolicy(runtime)
+        model.playbackBegan(playback)
+        model.queueViewingEvent(.progress, controller: playback, elapsed: 2)
+        let originalReports = runtime.events.filter { $0.kind == .started || $0.kind == .progress }
+        for report in originalReports {
+            await transport.markQuarantined(report)
+        }
+        let recovering = Task { try await model.synchronizeViewingPolicy(runtime) }
+        for await _ in driver.entered.stream {
+            break
+        }
+        XCTAssertTrue(model.viewingHeld)
+        XCTAssertEqual(runtime.lease.policy?.revision, 2)
+        XCTAssertTrue(model.activePlayback === playback)
+        let duringStop = await transport.requests
+        XCTAssertEqual(duringStop.filter { $0.httpMethod == "GET" }.count, 1)
+        driver.resume?.resume()
+        try await recovering.value
+        XCTAssertNil(model.activePlayback)
+        XCTAssertFalse(model.viewingHeld)
+        XCTAssertEqual(runtime.lease.policy?.revision, 4)
+        let requests = await transport.requests
+        let sent = try requests.compactMap { request in
+            try request.httpBody.map { try JSONDecoder().decode(ReceiverEvent.self, from: $0) }
+        }
+        XCTAssertTrue(originalReports.allSatisfy { sent.contains($0) })
+        let usage = sent.filter { [.started, .progress, .stopped].contains($0.kind) }
+        XCTAssertEqual(usage.map(\.kind), [.started, .progress, .stopped])
+        XCTAssertTrue(usage.allSatisfy { $0.policyRevision == 2 && $0.playbackSessionID == playback.id.uuidString })
+        XCTAssertEqual(requests.last?.httpMethod, "GET")
+        XCTAssertFalse(runtime.events.contains { $0.kind == .started })
+        XCTAssertEqual(try KidsAdmissionJournal(configuration: configuration, directory: directory).events, runtime.events)
+    }
+
+    func testQuarantinedDurablePrefixAfterRestartDrainsOriginalBodiesBeforePolicyWithoutAutoplay() async throws {
+        let (model, _, configuration, directory) = try receiverHarness(activated: true)
+        let reports = [ReceiverEvent.Kind.progress, .progress, .stopped].enumerated().map { index, kind in
+            ReceiverEvent(
+                deviceID: configuration.deviceID.uuidString,
+                childUserID: configuration.childUserID,
+                policyRevision: 2,
+                playbackSessionID: "retired-controller",
+                itemID: "movie",
+                kind: kind,
+                positionSeconds: Double(index + 6),
+                elapsedPlayingSeconds: index == 0 ? 5 : 0
+            )
+        }
+        let original = try KidsAdmissionJournal(configuration: configuration, directory: directory)
+        for report in reports {
+            try original.appendEvent(report)
+        }
+        let transport = ReceiverTransport(policies: [policyJSON(model, enabled: false, revision: 4, commandID: UUID())])
+        for report in reports {
+            await transport.markQuarantined(report)
+        }
+        let restarted = try KidsViewingRuntime(configuration: configuration, transport: transport, ledgerDirectory: directory)
+        model.viewingRuntime = restarted
+        XCTAssertEqual(restarted.events, reports)
+        XCTAssertNil(restarted.lease.policy)
+        try await model.synchronizeViewingPolicy(restarted)
+        XCTAssertNil(model.activePlayback)
+        XCTAssertNil(restarted.admittedIntentID)
+        let requests = await transport.requests
+        XCTAssertEqual(requests.prefix(3).map { $0.url?.path }, Array(repeating: "/api/kids/v1/events", count: 3))
+        let sent = try requests.prefix(3).map { try JSONDecoder().decode(ReceiverEvent.self, from: XCTUnwrap($0.httpBody)) }
+        XCTAssertEqual(sent, reports)
+        XCTAssertEqual(requests[3].httpMethod, "GET")
+        XCTAssertFalse(restarted.events.contains { reports.map(\.eventID).contains($0.eventID) })
+        XCTAssertEqual(try KidsAdmissionJournal(configuration: configuration, directory: directory).events, restarted.events)
     }
 
     func testUnconfirmedBacklogDrainsAcrossBatchesBeforeFreshPolicy() async throws {
@@ -1634,7 +2479,7 @@ final class KidsApplicationBoundaryTests: XCTestCase {
             kind: .started,
             positionSeconds: 1
         )
-        runtime.events = [event]
+        try runtime.admission.appendEvent(event)
         await transport.markUnconfirmed(event, sessionID: "other-controller")
         do { try await model.synchronizeViewingPolicy(runtime)
             XCTFail("Malformed recovery metadata cannot acknowledge an event")
@@ -1835,6 +2680,27 @@ final class KidsApplicationBoundaryTests: XCTestCase {
         XCTAssertEqual(factory.preparations, 0)
         XCTAssertEqual(accounts.writes, 0)
         XCTAssertEqual(accounts.authentications, 0)
+    }
+
+    func testExistingParentUnlockReusesPINWithoutChangingIt() async {
+        let accounts = Accounts(), factory = PlaybackFactory()
+        accounts.savedPIN = "1234"
+        let model = KidsAppModel(accounts: accounts, playbackFactory: factory)
+        model.lockParents()
+        XCTAssertTrue(model.unlock("1234"))
+        do {
+            try await model.signIn(urlText: "not-a-server", username: "fixture", password: "fixture", parentPIN: "")
+            XCTFail("Invalid server address was accepted")
+        } catch { XCTAssertTrue(error is KidsAPIError, "An existing unlocked gate must not demand another PIN") }
+        XCTAssertEqual(accounts.savedPIN, "1234")
+        XCTAssertEqual(accounts.writes, 0)
+        model.lockParents()
+        do {
+            try await model.signIn(urlText: "not-a-server", username: "fixture", password: "fixture", parentPIN: "")
+            XCTFail("A locked gate reused parent access")
+        } catch { XCTAssertEqual(error as? KidsContractError, .denied) }
+        XCTAssertEqual(accounts.authentications, 0)
+        XCTAssertEqual(accounts.savedPIN, "1234")
     }
 
     func testPreviewRejectsCredentialsBeforeNetworkOrHostMutation() async {

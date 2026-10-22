@@ -264,17 +264,37 @@ public struct ReceiverEventReceipt: Decodable, Equatable, Sendable {
     public let status: String
     public let evidenceDisposition: String?
     public let unconfirmedPlaybackSessionID: String?
+    public let dispositionID: UUID?
+    public let usageCredited: Bool?
+    public let unknownUsagePreserved: Bool?
 
     func validate(for event: ReceiverEvent) throws {
         guard commandID == event.eventID, status == "persisted" else { throw ParentControlError.malformedResponse }
         if evidenceDisposition == nil, unconfirmedPlaybackSessionID == nil {
+            guard dispositionID == nil, usageCredited == nil, unknownUsagePreserved == nil else {
+                throw ParentControlError.malformedResponse
+            }
             return
         }
-        guard evidenceDisposition == "unconfirmed", let session = unconfirmedPlaybackSessionID, !session.isEmpty,
+        let quarantined = evidenceDisposition == "quarantined"
+        guard evidenceDisposition == "unconfirmed" || quarantined,
+              let session = unconfirmedPlaybackSessionID, !session.isEmpty,
               session == event.playbackSessionID, event.commandID == nil,
               let item = event.itemID, !item.isEmpty,
               [.started, .progress, .paused, .buffering, .ended, .stopped].contains(event.kind)
         else { throw ParentControlError.malformedResponse }
+        if quarantined {
+            // This acknowledges a committed audit of invalid evidence only.
+            // It can hold/drain the original controller, never credit usage or
+            // authorize a new playback intent.
+            guard dispositionID != nil, usageCredited == false, unknownUsagePreserved == true else {
+                throw ParentControlError.malformedResponse
+            }
+        } else {
+            guard dispositionID == nil, usageCredited == nil, unknownUsagePreserved == nil else {
+                throw ParentControlError.malformedResponse
+            }
+        }
     }
 }
 
@@ -303,6 +323,44 @@ public struct KidsReceiverAPI: Sendable {
             headers["X-Kids-Client-Build"] = clientRevision.rawValue
         }
         self.headers = headers
+    }
+
+    public func requestParentAuthorization(_ notice: LANParentAuthorizationNotice) async throws -> ParentAuthorization {
+        guard notice.isValid, notice.serverID == serverID else { throw ParentControlError.serverMismatch }
+        struct Request: Encodable { let requestID: String
+            let lanNonce: String
+            let purpose = "unlockParents"
+        }
+        let result: ParentAuthorization = try await http.request(
+            "api/kids/v1/authorizations", method: "POST", headers: headers,
+            body: JSONEncoder().encode(Request(requestID: notice.requestID.uuidString.lowercased(), lanNonce: notice.lanNonce)),
+            receiverMutation: true
+        )
+        try validateParentAuthorization(result, requestID: notice.requestID)
+        return result
+    }
+
+    public func parentAuthorization(requestID: UUID, wait: Bool = true) async throws -> ParentAuthorization {
+        let result: ParentAuthorization = try await http.request(
+            "api/kids/v1/authorizations/\(requestID.uuidString.lowercased())", headers: headers,
+            query: wait ? [.init(name: "wait", value: "10")] : []
+        )
+        try validateParentAuthorization(result, requestID: requestID)
+        return result
+    }
+
+    public func cancelParentAuthorization(requestID: UUID) async throws {
+        let result: ParentAuthorization = try await http.request(
+            "api/kids/v1/authorizations/\(requestID.uuidString.lowercased())/cancel", method: "POST", headers: headers,
+            body: Data("{}".utf8), receiverMutation: true
+        )
+        try validateParentAuthorization(result, requestID: requestID)
+    }
+
+    private func validateParentAuthorization(_ result: ParentAuthorization, requestID: UUID) throws {
+        try result.validate(serverID: serverID, requestID: requestID)
+        guard result.childUserID == childUserID, UUID(uuidString: result.deviceID) == UUID(uuidString: deviceID),
+              UUID(uuidString: deviceID) != nil else { throw ParentControlError.serverMismatch }
     }
 
     public func policy() async throws -> ReceiverPolicy {

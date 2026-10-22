@@ -104,6 +104,46 @@ func `intent playback grant requires exact intent controller and item`() throws 
 }
 
 @Test
+func `preexpiry renewal admits only the fresh same controller grant and preserves old deadline`() throws {
+    var value = ViewingLease(serverID: server, childUserID: child, deviceID: device, requiresPlaybackGrants: true)
+    let first = try intentPolicy()
+    try value.accept(first, requestStartedNS: 0, receivedNS: 1_000_000_000)
+    let original = value
+    let id = try #require(first.playbackIntentID)
+    let next = try intentPolicy([
+        "revision": 3, "serverTime": "2026-10-17T12:00:25.000Z", "validUntil": "2026-10-17T12:00:55.000Z"
+    ])
+    try value.accept(next, requestStartedNS: 25_000_000_000, receivedNS: 25_500_000_000)
+    #expect(!original.allowsNormalViewing(at: 30_000_000_000))
+    #expect(value.permitsPlayback(episode, binding: binding, intentID: id, sessionID: "Prepared-Controller", at: 30_000_000_000))
+    #expect(value.permitsPlayback(episode, binding: binding, intentID: id, sessionID: "Prepared-Controller", at: 54_999_999_999))
+    #expect(!value.permitsPlayback(episode, binding: binding, intentID: id, sessionID: "Other-Controller", at: 30_000_000_000))
+    #expect(!value.allowsNormalViewing(at: 55_000_000_000))
+    #expect(throws: ParentControlError.serverMismatch) {
+        try value.accept(first, requestStartedNS: 26_000_000_000, receivedNS: 26_500_000_000)
+    }
+    #expect(value.policy?.revision == 3)
+    #expect(value.allowsNormalViewing(at: 54_999_999_999))
+}
+
+@Test
+func `invalid renewal cannot extend the old lease or add implicit deadline grace`() throws {
+    var value = ViewingLease(serverID: server, childUserID: child, deviceID: device, requiresPlaybackGrants: true)
+    try value.accept(intentPolicy(), requestStartedNS: 0, receivedNS: 1_000_000_000)
+    let before = value.policy
+    let malformed = try intentPolicy([
+        "revision": 3, "serverTime": "2026-10-17T12:00:25.000Z", "validUntil": "2026-10-17T12:01:00.000Z"
+    ])
+    #expect(throws: ParentControlError.malformedResponse) {
+        try value.accept(malformed, requestStartedNS: 25_000_000_000, receivedNS: 25_500_000_000)
+    }
+    #expect(value.policy == before)
+    #expect(value.allowsNormalViewing(at: 29_999_999_999))
+    #expect(!value.allowsNormalViewing(at: 30_000_000_000))
+    #expect(!value.allowsNormalViewing(at: 35_000_000_000))
+}
+
+@Test
 func `zero viewing lease can permit fresh catalog without permitting playback`() throws {
     var value = ViewingLease(serverID: server, childUserID: child, deviceID: device)
     try value.accept(intentPolicy([

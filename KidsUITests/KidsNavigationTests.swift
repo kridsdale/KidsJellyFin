@@ -49,6 +49,63 @@ final class KidsNavigationTests: XCTestCase {
         add(shot)
     }
 
+    /// Native remote input for the installed receiver; never launches preview data or edits app state.
+    func testInstalledReceiverRemoteInput() throws {
+        guard let raw = ProcessInfo.processInfo.environment["KIDS_QA_REMOTE_SEQUENCE"],
+              let data = raw.data(using: .utf8),
+              let actions = try? JSONDecoder().decode([String].self, from: data),
+              !actions.isEmpty, actions.count <= 16
+        else {
+            throw XCTSkip("Explicit installed-receiver remote sequence required.")
+        }
+        let buttons: [String: XCUIRemote.Button] = [
+            "select": .select, "menu": .menu, "up": .up,
+            "down": .down, "left": .left, "right": .right, "playPause": .playPause
+        ]
+        app.activate()
+        XCTAssertTrue(app.wait(for: .runningForeground, timeout: 10))
+        for action in actions {
+            if action.hasPrefix("focus:") {
+                let label = String(action.dropFirst(6))
+                let target = NSPredicate(format: "label == %@ OR identifier == %@", label, label)
+                var found = false
+                for direction in [XCUIRemote.Button.down, .up] {
+                    for _ in 0 ..< 32 {
+                        let focused = app.descendants(matching: .any)
+                            .matching(NSPredicate(format: "hasFocus == true")).allElementsBoundByIndex
+                        if focused.contains(where: { $0.label == label || $0.identifier == label ||
+                                $0.descendants(matching: .any).matching(target).firstMatch.exists
+                        }) {
+                            found = true
+                            break
+                        }
+                        XCUIRemote.shared.press(direction)
+                    }
+                    if found {
+                        break
+                    }
+                }
+                XCTAssertTrue(found, "Native focus target unavailable: \(label)")
+                if !found {
+                    return
+                }
+            } else if action == "inspect" {
+                for element in app.descendants(matching: .any)
+                    .matching(NSPredicate(format: "hasFocus == true")).allElementsBoundByIndex
+                {
+                    print("QA_FOCUS label=\(element.label) identifier=\(element.identifier)")
+                }
+                for element in app.textFields.allElementsBoundByIndex + app.secureTextFields.allElementsBoundByIndex {
+                    print("QA_FIELD label=\(element.label) identifier=\(element.identifier)")
+                }
+            } else {
+                let button = try XCTUnwrap(buttons[action], "Unsupported native remote action")
+                XCUIRemote.shared.press(button)
+            }
+        }
+        Thread.sleep(forTimeInterval: 1)
+    }
+
     func testShowsTitleAndBackRestoresCard() {
         launch("shows")
         let card = app.buttons["kids.card.show-1"]
@@ -62,6 +119,22 @@ final class KidsNavigationTests: XCTestCase {
         XCTAssertTrue(card.waitForExistence(timeout: 5))
         XCTAssertTrue(card.hasFocus)
         capture("shows-grid-return")
+    }
+
+    func testShowTitleParentsIsReachableByDirectionalRemoteInput() {
+        launch("shows")
+        let card = app.buttons["kids.card.show-1"]
+        XCTAssertTrue(card.waitForExistence(timeout: 10))
+        select(card)
+        let next = app.buttons["kids.action.next"]
+        let parents = app.buttons["kids.title.parents"]
+        XCTAssertTrue(next.waitForExistence(timeout: 5))
+        XCTAssertTrue(parents.exists)
+        XCTAssertTrue(next.hasFocus)
+        XCUIRemote.shared.press(.down)
+        XCTAssertTrue(parents.hasFocus, "Show-title Parents must be reachable from the primary action with one down press")
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(app.secureTextFields["kids.parent.pin"].waitForExistence(timeout: 5))
     }
 
     func testScrolledCardFocusReturnsAfterTitle() {
@@ -111,6 +184,48 @@ final class KidsNavigationTests: XCTestCase {
         XCTAssertTrue(next.waitForExistence(timeout: 5))
         XCTAssertTrue(next.label.contains("Again"))
         capture("series-again")
+    }
+
+    func testParentSidebarUsesQuarterWidthAndRemoteMenuCloses() {
+        launch("controls")
+        let parents = app.buttons["kids.player.parents"]
+        XCTAssertTrue(parents.waitForExistence(timeout: 10))
+        XCUIRemote.shared.press(.right)
+        select(parents)
+        let pin = app.secureTextFields["kids.parent.pin"]
+        XCTAssertTrue(pin.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(pin.frame.minX, app.frame.width * 0.75)
+        XCTAssertLessThanOrEqual(pin.frame.maxX, app.frame.maxX)
+        XCTAssertTrue(app.buttons["kids.parent.unlock"].exists)
+        XCTAssertFalse(app.buttons["kids.parent.phone.request"].exists)
+        capture("parents-quarter-sidebar")
+        XCUIRemote.shared.press(.menu)
+        XCTAssertTrue(pin.waitForNonExistence(timeout: 5), "Remote Menu must close the sidebar")
+        XCTAssertTrue(app.buttons["kids.player.playpause"].isEnabled)
+        capture("parents-menu-restores-player")
+        XCUIRemote.shared.press(.right)
+        select(parents)
+        XCTAssertTrue(pin.waitForExistence(timeout: 5))
+        // The sidebar's initial focused action is its explicit close control.
+        XCUIRemote.shared.press(.select)
+        XCTAssertTrue(pin.waitForNonExistence(timeout: 5), "Back to kids must close the sidebar")
+        XCTAssertTrue(app.buttons["kids.player.playpause"].isEnabled)
+    }
+
+    func testPausedTimelineAcceptsDirectionalSeek() {
+        launch("paused")
+        let playPause = app.buttons["kids.player.playpause"]
+        let timeline = app.descendants(matching: .any)["kids.player.timeline"]
+        XCTAssertTrue(playPause.waitForExistence(timeout: 10))
+        XCTAssertTrue(timeline.exists)
+        XCTAssertTrue(playPause.hasFocus)
+        XCUIRemote.shared.press(.up)
+        XCTAssertTrue(timeline.hasFocus, "Paused timeline must be reachable from the playback controls")
+        let originalValue = timeline.value as? String
+        XCUIRemote.shared.press(.right)
+        XCTAssertNotEqual(timeline.value as? String, originalValue, "Right must seek forward while the timeline is focused")
+        XCUIRemote.shared.press(.left)
+        XCTAssertEqual(timeline.value as? String, originalValue, "Left must seek backward while the timeline is focused")
     }
 
     func testParentGateMasksPINAndBackReturns() {

@@ -1,5 +1,10 @@
 # Queued engineering goals
 
+This document is now a historical scope reference. **Beads is the task source of
+truth:** `kids-ab7` owns LAN discovery, with design, implementation and simulator
+validation in its child tasks. It depends on Parents delivery epic `kids-1t9`.
+Use `bd --sandbox show kids-ab7` and `bd --sandbox ready` for current state.
+
 ## Next: automatic LAN server discovery — requested 2026-10-17
 
 Status: queued after the active Parents integration and acceptance goal. This is

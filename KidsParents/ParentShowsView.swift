@@ -44,8 +44,9 @@ struct ParentShowsView: View {
                     }
                 } else {
                     Section {
-                        Label("Viewing restrictions need the server extension. This catalog is read-only.", systemImage: "info.circle")
+                        Label("Connect parent access to choose which shows the child can watch.", systemImage: "info.circle")
                             .font(.footnote)
+                        NavigationLink("Connect in Settings") { ParentSettingsView(model: model) }
                     }
                     Section("Kid TV") {
                         ForEach(model.shows.filter { search.isEmpty || $0.name.localizedCaseInsensitiveContains(search) }) { show in

@@ -314,6 +314,9 @@
 		FC30E24CE3030D853DBE8021 /* FamilyRulesView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A334153FEEEA4C1503F6B27F; };
 		4F6DB3DB11C7CD3F4DEABA94 /* ParentActivityViews.swift in Sources */ = {isa = PBXBuildFile; fileRef = F8BD4372DEAE0CE063B41CF6; };
 		7FD84756E08EB002E7743182 /* ParentFeaturePreviews.swift in Sources */ = {isa = PBXBuildFile; fileRef = FA8304E4040792057B576529; };
+		35CEA134D59A3747FD5910E7 /* KidsServerDiscovery in Parents Frameworks */ = {isa = PBXBuildFile; productRef = BDEA6D4934AFE72E7087DE74; };
+		F0A120260000000000000002 /* ParentsModel+Authorization.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A120260000000000000001; };
+		F0A120260000000000000004 /* TVParentAuthorizationView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F0A120260000000000000003; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -453,6 +456,8 @@
 		A334153FEEEA4C1503F6B27F /* FamilyRulesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "FamilyRulesView.swift"; sourceTree = "<group>"; };
 		F8BD4372DEAE0CE063B41CF6 /* ParentActivityViews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentActivityViews.swift"; sourceTree = "<group>"; };
 		FA8304E4040792057B576529 /* ParentFeaturePreviews.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentFeaturePreviews.swift"; sourceTree = "<group>"; };
+		F0A120260000000000000001 /* ParentsModel+Authorization.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "ParentsModel+Authorization.swift"; sourceTree = "<group>"; };
+		F0A120260000000000000003 /* TVParentAuthorizationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "TVParentAuthorizationView.swift"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -784,7 +789,7 @@
 			files = (DA84D45AF34706F95986A10B /* SwiftfinCredentials in Frameworks */, );
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		F4A4B9413D3190DBA12B699D /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (27E6EAC9074CE3B81358A6F8, A11600000000000000000001, ); runOnlyForDeploymentPostprocessing = 0; };
+		F4A4B9413D3190DBA12B699D /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (27E6EAC9074CE3B81358A6F8, A11600000000000000000001, 35CEA134D59A3747FD5910E7, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -937,7 +942,7 @@
 			name = "Package ownership tests";
 			sourceTree = "<group>";
 		};
-		B5EC3446A905C3C1D4AD5C37 /* KidsParents */ = {isa = PBXGroup; children = (FA8304E4040792057B576529, F8BD4372DEAE0CE063B41CF6, A334153FEEEA4C1503F6B27F, 8ABCE02F55C4CA684E64FDE1, 17EC74B2586AE390C798E98F, 90DB1E19AC84041E691CA141, 6644C9A6686E1831D705EE90, 1143E00F98A8D1BE251396BF, 24499B9D6378E063CD938052, 4FB7A0C7F288A7FA77D03345, EC4FF83FB05442BE700FA22B, 0538757A13B72E121E6975E2, ); path = KidsParents; sourceTree = "<group>"; };
+		B5EC3446A905C3C1D4AD5C37 /* KidsParents */ = {isa = PBXGroup; children = (F0A120260000000000000003, F0A120260000000000000001, FA8304E4040792057B576529, F8BD4372DEAE0CE063B41CF6, A334153FEEEA4C1503F6B27F, 8ABCE02F55C4CA684E64FDE1, 17EC74B2586AE390C798E98F, 90DB1E19AC84041E691CA141, 6644C9A6686E1831D705EE90, 1143E00F98A8D1BE251396BF, 24499B9D6378E063CD938052, 4FB7A0C7F288A7FA77D03345, EC4FF83FB05442BE700FA22B, 0538757A13B72E121E6975E2, ); path = KidsParents; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -1237,7 +1242,7 @@
  buildPhases = (872F994F0950B80D291BE670, F4A4B9413D3190DBA12B699D, A1FD305F2A66AC8035447097, );
  buildRules = (); dependencies = ();
  name = "KidsJellyFin Parents";
- packageProductDependencies = (F63886682994110E9A050E59, C58B2BB13D75BC7E65C9EA22, );
+ packageProductDependencies = (F63886682994110E9A050E59, C58B2BB13D75BC7E65C9EA22, BDEA6D4934AFE72E7087DE74, );
  productName = KidsJellyFinParents;
  productReference = 90567C1183A950AF2CB7A1E7;
  productType = "com.apple.product-type.application";
@@ -1348,6 +1353,7 @@
 			);
 			mainGroup = 5377CBE8263B596A003A4E83;
 			packageReferences = (
+				675EC8ED82BD9C2D62DE1A71 /* Packages/KidsServerDiscovery */,
 				7459C6FC4E2A5677FA1EAC15 /* Packages/KidsParentControl */,
 				66511D990DFD262233B90248 /* XCLocalSwiftPackageReference "Packages/SwiftfinPermissions" */,
 				C1299E2895E0D5D3B62BF4EC /* XCLocalSwiftPackageReference "Packages/SwiftfinImageProcessing" */,
@@ -1486,7 +1492,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Add Homebrew to the path to support Apple Silicon Homebrew SwiftFormat installations\nexport PATH=/opt/homebrew/bin:$PATH\n\n# Skip phase if the action is not build (ie. analyze, archive, etc).\nif [ \"$ACTION\" != \"build\" ]; then\n    exit 0\nfi\n\nif which swiftformat >/dev/null; then\n    swiftformat .\nelse\n    echo \"error: SwiftFormat not installed, check contributing.md for installation instructions.\"\nfi\n";
+			shellScript = "# Add Homebrew to the path to support Apple Silicon Homebrew SwiftFormat installations\nexport PATH=/opt/homebrew/bin:$PATH\n\n# Skip phase if the action is not build (ie. analyze, archive, etc).\nif [ \"$ACTION\" != \"build\" ]; then\n    exit 0\nfi\n\nif which swiftformat >/dev/null; then\n    # Builds check formatting without rewriting stamped source.\n    swiftformat --lint .\nelse\n    echo \"error: SwiftFormat not installed, check contributing.md for installation instructions.\"\nfi\n";
 		};
 		BD83D7852B55EEB600652C24 /* Run SwiftFormat */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1505,7 +1511,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "# Add Homebrew to the path to support Apple Silicon Homebrew SwiftFormat installations\nexport PATH=/opt/homebrew/bin:$PATH\n\n# Skip phase if the action is not build (ie. analyze, archive, etc).\nif [ \"$ACTION\" != \"build\" ]; then\n    exit 0\nfi\n\nif which swiftformat >/dev/null; then\n    swiftformat .\nelse\n    echo \"error: SwiftFormat not installed, check contributing.md for installation instructions.\"\nfi\n";
+			shellScript = "# Add Homebrew to the path to support Apple Silicon Homebrew SwiftFormat installations\nexport PATH=/opt/homebrew/bin:$PATH\n\n# Skip phase if the action is not build (ie. analyze, archive, etc).\nif [ \"$ACTION\" != \"build\" ]; then\n    exit 0\nfi\n\nif which swiftformat >/dev/null; then\n    # Builds check formatting without rewriting stamped source.\n    swiftformat --lint .\nelse\n    echo \"error: SwiftFormat not installed, check contributing.md for installation instructions.\"\nfi\n";
 		};
 		E19009182F00000000000001 /* Write Git Branch */ = {
 			isa = PBXShellScriptBuildPhase;
@@ -1659,7 +1665,7 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 		DA84ADB10621A3352C4B4AE1 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (); runOnlyForDeploymentPostprocessing = 0; };
-		872F994F0950B80D291BE670 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (7FD84756E08EB002E7743182, 4F6DB3DB11C7CD3F4DEABA94, FC30E24CE3030D853DBE8021, CA3A142548E3815891EDF0BD, F3CBDBB154CBF748234650C9, 2B8A35343391DEFF91A27E93, 9FC994DFF526CD80F6ADD01E, 6E2E9D49B4B0D3AECC54A6AA, 03E75F34AB241F6F9170E11F, 1FD0C04F753E547296F9A80B, 50C0A9FA057F646B3D7563A7, ); runOnlyForDeploymentPostprocessing = 0; };
+		872F994F0950B80D291BE670 /* Sources */ = {isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (7FD84756E08EB002E7743182, 4F6DB3DB11C7CD3F4DEABA94, FC30E24CE3030D853DBE8021, CA3A142548E3815891EDF0BD, F3CBDBB154CBF748234650C9, 2B8A35343391DEFF91A27E93, 9FC994DFF526CD80F6ADD01E, 6E2E9D49B4B0D3AECC54A6AA, 03E75F34AB241F6F9170E11F, 1FD0C04F753E547296F9A80B, F0A120260000000000000004, F0A120260000000000000002, 50C0A9FA057F646B3D7563A7, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin XCBuildConfiguration section */
@@ -1681,6 +1687,7 @@
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = "Swiftfin tvOS/Resources/Info.plist";
 				KIDS_CLOUD_SYNC_ENABLED = YES;
+				KIDS_RELEASE_VERSION = development;
 				"KIDS_CLOUD_SYNC_ENABLED[sdk=appletvsimulator*]" = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -1717,6 +1724,7 @@
 				FRAMEWORK_SEARCH_PATHS = "$(inherited)";
 				INFOPLIST_FILE = "Swiftfin tvOS/Resources/Info.plist";
 				KIDS_CLOUD_SYNC_ENABLED = YES;
+				KIDS_RELEASE_VERSION = development;
 				"KIDS_CLOUD_SYNC_ENABLED[sdk=appletvsimulator*]" = NO;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -2022,7 +2030,9 @@
  PRODUCT_NAME = KidsJellyFinParents;
  PRODUCT_MODULE_NAME = KidsParents;
  INFOPLIST_FILE = KidsParents/Info.plist;
+ CODE_SIGN_ENTITLEMENTS = KidsParents/KidsParents.entitlements;
  GENERATE_INFOPLIST_FILE = YES;
+ KIDS_RELEASE_VERSION = development;
  CURRENT_PROJECT_VERSION = 1;
  MARKETING_VERSION = 0.1;
  IPHONEOS_DEPLOYMENT_TARGET = 18.6;
@@ -2042,7 +2052,9 @@
  PRODUCT_NAME = KidsJellyFinParents;
  PRODUCT_MODULE_NAME = KidsParents;
  INFOPLIST_FILE = KidsParents/Info.plist;
+ CODE_SIGN_ENTITLEMENTS = KidsParents/KidsParents.entitlements;
  GENERATE_INFOPLIST_FILE = YES;
+ KIDS_RELEASE_VERSION = development;
  CURRENT_PROJECT_VERSION = 1;
  MARKETING_VERSION = 0.1;
  IPHONEOS_DEPLOYMENT_TARGET = 18.6;
@@ -2222,6 +2234,7 @@
 		C1299E2895E0D5D3B62BF4EC /* XCLocalSwiftPackageReference "Packages/SwiftfinImageProcessing" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/SwiftfinImageProcessing; };
 		66511D990DFD262233B90248 /* XCLocalSwiftPackageReference "Packages/SwiftfinPermissions" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/SwiftfinPermissions; };
 		7459C6FC4E2A5677FA1EAC15 /* XCLocalSwiftPackageReference "Packages/KidsParentControl" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/KidsParentControl; };
+		675EC8ED82BD9C2D62DE1A71 /* XCLocalSwiftPackageReference "Packages/KidsServerDiscovery" */ = {isa = XCLocalSwiftPackageReference; relativePath = Packages/KidsServerDiscovery; };
 /* End XCLocalSwiftPackageReference section */
 
 /* Begin XCRemoteSwiftPackageReference section */
@@ -3044,6 +3057,7 @@
 		E232BDED1C5CD65386196349 /* SwiftfinSessions */ = {isa = XCSwiftPackageProductDependency; package = DA87EA2E6E1125F208E61607 /* XCLocalSwiftPackageReference "Packages/SwiftfinSessions" */; productName = SwiftfinSessions; };
 		345C6C911BDA247EC39B5AB0 /* SwiftfinAsyncStreams */ = {isa = XCSwiftPackageProductDependency; package = DA8973D15AA3CE8C53314E47 /* XCLocalSwiftPackageReference "Packages/SwiftfinAsyncStreams" */; productName = SwiftfinAsyncStreams; };
 		F63886682994110E9A050E59 /* KidsParentControl */ = {isa = XCSwiftPackageProductDependency; package = 7459C6FC4E2A5677FA1EAC15; productName = KidsParentControl; };
+		BDEA6D4934AFE72E7087DE74 /* KidsServerDiscovery */ = {isa = XCSwiftPackageProductDependency; package = 675EC8ED82BD9C2D62DE1A71; productName = KidsServerDiscovery; };
 /* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 5377CBE9263B596A003A4E83 /* Project object */;

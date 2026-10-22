@@ -71,6 +71,7 @@ extension ParentsModel {
             if let failure = error as? ParentControlError, [.unauthorized, .serverMismatch].contains(failure) {
                 self.controls = nil
                 capabilities = nil
+                dashboard = nil
                 clearFamilyState()
             }
         }
@@ -80,9 +81,16 @@ extension ParentsModel {
         let features = ["routines-v1", "daily-budget-v1", "bonus-time-v1", "episode-exclusions-v1", "shuffle-preferences-v1"]
         guard features.contains(where: supports), !selectedChild.isEmpty else { return }
         let child = selectedChild
-        let state = try await api.profileSettings(childUserID: child)
-        guard selectedChild == child else { return }
-        profile = state
+        do {
+            let state = try await api.profileSettings(childUserID: child)
+            guard selectedChild == child, !locked else { return }
+            profile = state
+        } catch ParentControlError.unsupported {
+            // A missing optional rules route must not discard a valid dashboard
+            // connection or the independently available TV/show controls.
+            guard selectedChild == child else { return }
+            profile = nil
+        }
     }
 
     func loadProfile() async {
@@ -93,11 +101,17 @@ extension ParentsModel {
         }
     }
 
+    func setEnforcement(enabled: Bool) async {
+        await mutateFreshTV(feature: "receiver-enforcement-v1") { api, tv, _ in
+            try await api.setEnforcement(tv: tv, enabled: enabled)
+        }
+    }
+
     func finishCurrentEpisode() async {
-        guard canUse("finish-episode-v1"), let controls, let tv = chosenTV,
-              dashboard?.birdVideos.contains(where: { $0.id == selectedBird }) == true else { return }
-        await mutate {
-            try await controls.finishEpisode(tv: tv, birdItemID: self.selectedBird, maximumMinutes: self.minutes)
+        let bird = selectedBird, duration = minutes
+        await mutateFreshTV(feature: "finish-episode-v1") { api, tv, state in
+            guard state.birdVideos.contains(where: { $0.id == bird }) else { throw ParentControlError.invalidSelection }
+            return try await api.finishEpisode(tv: tv, birdItemID: bird, maximumMinutes: duration)
         }
     }
 
@@ -112,8 +126,9 @@ extension ParentsModel {
     }
 
     func remote(_ action: ParentRemoteAction) async {
-        guard canUse("remote-control-v1"), let controls, let tv = chosenTV else { return }
-        await mutate { try await controls.remote(tv: tv, action: action) }
+        await mutateFreshTV(feature: "remote-control-v1") { api, tv, _ in
+            try await api.remote(tv: tv, action: action)
+        }
     }
 
     func saveRoutines(_ routines: [ViewingRoutine], timeZone: String, profile: ParentProfileSettings) async {
@@ -122,8 +137,24 @@ extension ParentsModel {
     }
 
     func saveBudget(enabled: Bool, minutes: Int, profile: ParentProfileSettings) async {
-        guard canUse("daily-budget-v1"), let controls, profile.childUserID == selectedChild else { return }
-        await mutate { try await controls.saveBudget(profile: profile, enabled: enabled, dailyMinutes: minutes) }
+        guard canUse("daily-budget-v1"), let controls, let adult = credential,
+              profile.childUserID == selectedChild else { return }
+        let child = profile.childUserID, epoch = generation
+        await mutate {
+            for attempt in 0 ... 1 {
+                try self.validateActivity(controls, epoch: epoch, adult: adult)
+                let fresh = try await controls.profileSettings(childUserID: child)
+                try self.validateActivity(controls, epoch: epoch, adult: adult)
+                guard self.selectedChild == child else { throw ParentActivityInterrupted() }
+                do {
+                    let receipt = try await controls.saveBudget(profile: fresh, enabled: enabled, dailyMinutes: minutes)
+                    try self.validateActivity(controls, epoch: epoch, adult: adult)
+                    guard self.selectedChild == child else { throw ParentActivityInterrupted() }
+                    return receipt
+                } catch is ParentRevisionConflict where attempt == 0 { continue }
+            }
+            throw ParentRevisionConflict()
+        }
     }
 
     func saveShuffle(_ preferences: ParentShufflePreferences, profile: ParentProfileSettings) async {
@@ -212,19 +243,77 @@ extension ParentsModel {
         }
     }
 
+    /// Cached health is descriptive only; an old or unconfirmed timestamp
+    /// must not keep displaying current service health or TV reachability.
+    func healthIsCurrent(at now: Date) -> Bool {
+        guard let health = serverHealth else { return false }
+        let age = now.timeIntervalSince(health.observedAt)
+        return age.isFinite && (0 ... 60).contains(age)
+    }
+
     func loadHealth() async {
         guard supports("health-v1"), let controls else { return }
         await perform { self.serverHealth = try await controls.health() }
     }
 
+    private func validateActivity(_ api: ParentControlAPI, epoch: UUID, adult: ParentCredential) throws {
+        guard generation == epoch, !locked, controls === api,
+              credential?.serverID == adult.serverID, credential?.userID == adult.userID
+        else {
+            throw ParentActivityInterrupted()
+        }
+    }
+
+    func mutateFreshTV(
+        feature: String,
+        operation: (ParentControlAPI, ControlledTV, ParentDashboard) async throws -> ParentCommandReceipt
+    ) async {
+        guard canUse(feature) else {
+            if !demo, !locked {
+                notice = busy ? "A refresh or change is still in progress. Try this control again when it finishes." :
+                    "Refresh the connection before trying this TV control again."
+            }
+            return
+        }
+        guard let api = controls, let target = chosenTV, let adult = credential else {
+            notice = "Connect parent access and select a paired Apple TV before using this control."
+            return
+        }
+        let epoch = generation
+        await mutate {
+            for attempt in 0 ... 1 {
+                try self.validateActivity(api, epoch: epoch, adult: adult)
+                try await self.loadControls(api)
+                try self.validateActivity(api, epoch: epoch, adult: adult)
+                guard self.selectedTV == target.id, let state = self.dashboard,
+                      let fresh = state.televisions.first(where: { $0.id == target.id && $0.childUserID == target.childUserID })
+                else {
+                    throw ParentActivityInterrupted()
+                }
+                do {
+                    let receipt = try await operation(api, fresh, state)
+                    try self.validateActivity(api, epoch: epoch, adult: adult)
+                    guard self.selectedTV == target.id else { throw ParentActivityInterrupted() }
+                    return receipt
+                } catch is ParentRevisionConflict where attempt == 0 { continue }
+            }
+            throw ParentRevisionConflict()
+        }
+    }
+
     private func mutate(_ operation: () async throws -> ParentCommandReceipt) async {
-        guard let controls else { return }
+        guard let controls, let adult = credential else { return }
+        let epoch = generation
         await perform {
+            try self.validateActivity(controls, epoch: epoch, adult: adult)
+            self.needsRefresh = true
             let receipt = try await operation()
+            try self.validateActivity(controls, epoch: epoch, adult: adult)
             self.lastCommand = receipt
             self.notice = "Server status: \(receipt.status). TV delivery is shown separately."
             try await self.loadControls(controls)
             try await self.loadProfileState(controls)
+            try self.validateActivity(controls, epoch: epoch, adult: adult)
             self.needsRefresh = false
         }
     }

@@ -380,8 +380,16 @@ Compile:
 xcodebuild -project KidsJellyFin.xcodeproj -scheme 'KidsJellyFin Parents' \
   -configuration Debug -destination 'generic/platform=iOS Simulator' \
   -disableAutomaticPackageResolution -skipPackageUpdates -skipMacroValidation \
-  CODE_SIGNING_ALLOWED=NO build
+  CODE_SIGNING_ALLOWED=YES CODE_SIGN_IDENTITY=- build
 ```
+
+Keep simulator signing enabled for real sign-in. On 2026-10-18, a build made with
+`CODE_SIGNING_ALLOWED=NO` compiled and launched but Keychain reads failed with
+`errSecMissingEntitlement` (`-34018`). Rebuilding with the command above generated
+the paid team's application identifier in the simulator's Mach-O entitlements;
+the dedicated iPhone then reached the login form without the storage error.
+Unsigned builds and offline previews do not validate credential storage. Simulator
+ad-hoc signing does not provision or install on a physical device.
 
 Launch with `--parent-preview` for clearly labeled offline sample screens. All
 mutating actions and import-manager launch are disabled in this preview.
@@ -457,3 +465,53 @@ separate Keychain configuration, playback/catalog gates and ambient fallback.
 The full package-boundary audit passes after correcting the existing diagnostic
 import inventory. Current source checks and backend gaps supersede the earlier
 receiver-not-implemented status; see [receiver integration](parents-receiver-integration.md).
+
+
+### Receiver request and lifecycle diagnostics — 2026-10-19
+
+The shared control SDK emits local unified-log records under subsystem
+`com.kridsdale.JellyfinPlayer`, category `ParentControl`. Each request has a
+random attempt ID, an allowlisted route and method, begin/response/finish phases,
+monotonic elapsed milliseconds, an HTTP status and a safe error classification.
+Unknown routes become `other`. Credentials, headers, complete URLs, query values,
+request/response bodies and raw error descriptions are excluded. These records
+add no requests, retries or protocol fields and do not change error propagation.
+
+The receiver also records monitor start/stop, foreground/background transitions,
+pairing/cancellation flags, and policy refresh start/finish/failure. A missing
+request finish can distinguish an outstanding transport call from a stopped
+monitor; a policy validation failure appears at the refresh boundary. Initial
+unpaired monitor starts are not evidence of a failed active receiver.
+
+For an authorized simulator observation, start a bounded capture before launch:
+
+```sh
+umask 077
+/Library/Developer/PrivateFrameworks/CoreSimulator.framework/Versions/A/Resources/bin/simctl \
+  spawn "$SIMULATOR_UDID" log stream --style compact --level info --timeout 150 \
+  --predicate 'subsystem == "com.kridsdale.JellyfinPlayer" AND category == "ParentControl"' \
+  > /private/tmp/parent-control-trace.log
+```
+
+A log timeout does not stop the media app; the separately owned native stop guard
+controls that window. Use ordinary remote/UI input during coordinated core
+windows, without debugger attachment or target suspension. Check the host desktop
+is unlocked before trying Device Hub input. Keep local traces private and reuse
+passing evidence instead of repeating a window to collect the same records.
+
+Five focused diagnostic tests cover private request preservation, HTTP failure,
+URL timeout, cancellation, malformed data, unknown-error redaction and no retry.
+They passed in ten seconds including compilation. One subsequent disabled-idle
+observation under a 120-second guard, without UI actions or debugger attachment, completed
+13 successful policy GETs and 13 event POSTs (12 successful and one structured
+stale reachability conflict). Maximum request-start gap was 9.43 seconds. The
+native guard stopped the process and its admission journal remained empty.
+This establishes that particular idle observation, not enabled control delivery,
+video playback, strict audio/renderer callbacks or physical-device behavior.
+
+The earlier client eventually acknowledged its control after a 115.31-second
+polling gap. Retained tool intervals do not prove a continuous debugger pause,
+and the historical cause remains unproven. Current acceptance belongs in Beads:
+require actual timely enable acknowledgement and the bounded core playback check;
+do not turn an unproven historical explanation into another prerequisite or relax
+the server's freshness requirement.

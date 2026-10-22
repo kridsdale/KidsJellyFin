@@ -365,3 +365,36 @@ func `unknown reservations cannot be shown as available time`() {
         serverRemainingSeconds: 3450
     ).remainingSeconds == 3450)
 }
+
+@Test
+func `routine writes use canonical UUI ds`() async throws {
+    let routineID = try #require(UUID(uuidString: "ABCDEFAB-CDEF-4ABC-8DEF-ABCDEFABCDEF"))
+    let commandID = try #require(UUID(uuidString: "FEDCBAFE-DCBA-4FED-8CBA-FEDCBAFEDCBA"))
+    let routine = ViewingRoutine(id: routineID)
+    let transport = FamilyTransport([
+        (200, familyCapabilities),
+        (202, "{\"commandID\":\"\(commandID)\",\"status\":\"persisted\"}")
+    ])
+    let api = try familyAPI(transport)
+    _ = try await api.connect()
+    _ = try await api.saveRoutines(profile: profile(), routines: [routine], timeZone: "UTC", commandID: commandID)
+    let request = try #require(await transport.requests.last)
+    let data = try #require(request.httpBody)
+    let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    let rows = try #require(body["routines"] as? [[String: Any]])
+    #expect(rows.count == 1)
+    let row = try #require(rows.first)
+    #expect(Set(row.keys) == Set(["id", "name", "weekdays", "startMinute", "endMinute", "enabled"]))
+    #expect(row["id"] as? String == "abcdefab-cdef-4abc-8def-abcdefabcdef")
+    #expect(row["name"] as? String == "After school")
+    #expect(row["weekdays"] as? [Int] == [1, 2, 3, 4, 5])
+    #expect(row["startMinute"] as? Int == 900)
+    #expect(row["endMinute"] as? Int == 1080)
+    #expect(row["enabled"] as? Bool == true)
+    #expect(body["timeZone"] as? String == "UTC")
+    #expect(body["commandID"] as? String == commandID.uuidString)
+    #expect(request.value(forHTTPHeaderField: "Idempotency-Key") == commandID.uuidString)
+    let roundTrip = try JSONDecoder().decode(ViewingRoutine.self, from: JSONSerialization.data(withJSONObject: row))
+    #expect(roundTrip == routine)
+    #expect(routine.id == routineID)
+}

@@ -66,17 +66,44 @@ struct ParentHealthView: View {
     @Bindable
     var model: ParentsModel
     var body: some View {
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            healthContent(at: context.date)
+        }
+        .navigationTitle("Server health")
+        .refreshable { await model.loadHealth() }
+        .task { await model.loadHealth() }
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.loadHealth() } }
+                    .disabled(model.busy || model.demo || !model.supports("health-v1"))
+                    .accessibilityIdentifier("parents.health.refresh")
+            }
+        }
+    }
+
+    private func healthContent(at now: Date) -> some View {
         List {
             if let health = model.serverHealth {
+                let current = model.healthIsCurrent(at: now)
+                if !current {
+                    Section {
+                        Label("This observation is out of date. Pull to refresh.", systemImage: "clock.badge.questionmark")
+                            .foregroundStyle(.secondary)
+                    }
+                }
                 Section("Server") {
-                    LabeledContent("Jellyfin", value: health.jellyfin.capitalized)
-                    LabeledContent("Download worker", value: health.worker.capitalized)
+                    LabeledContent("Jellyfin", value: current ? health.jellyfin.capitalized : "Unknown")
+                    LabeledContent("Download worker", value: current ? health.worker.capitalized : "Unknown")
                     LabeledContent(
                         "Available storage",
-                        value: health.storageFreeBytes.map { ByteCountFormatter.string(fromByteCount: $0, countStyle: .file) } ?? "Unknown"
+                        value: current ?
+                            (health.storageFreeBytes.map { ByteCountFormatter.string(
+                                fromByteCount: $0,
+                                countStyle: .file
+                            ) } ?? "Unknown") : "Unknown"
                     )
-                    LabeledContent("Queued downloads", value: health.pendingJobs.map(String.init) ?? "Unknown")
-                    LabeledContent("Failed downloads", value: health.failedJobs.map(String.init) ?? "Unknown")
+                    LabeledContent("Queued downloads", value: current ? (health.pendingJobs.map(String.init) ?? "Unknown") : "Unknown")
+                    LabeledContent("Failed downloads", value: current ? (health.failedJobs.map(String.init) ?? "Unknown") : "Unknown")
                     LabeledContent("Observed") {
                         Text(health.observedAt.formatted(date: .abbreviated, time: .shortened)).font(.footnote)
                     }
@@ -84,8 +111,8 @@ struct ParentHealthView: View {
                 Section("Apple TVs") {
                     ForEach(health.televisions) { tv in
                         VStack(alignment: .leading, spacing: 4) {
-                            Label(tv.name, systemImage: tv.online ? "tv.badge.wifi" : "wifi.slash")
-                            Text(tv.online ? "Online" : "Offline").foregroundStyle(.secondary)
+                            Label(tv.name, systemImage: current ? (tv.online ? "tv.badge.wifi" : "wifi.slash") : "questionmark.circle")
+                            Text(current ? (tv.online ? "Online" : "Offline") : "Unknown").foregroundStyle(.secondary)
                             if let seen = tv
                                 .lastSeen
                             {
@@ -98,15 +125,31 @@ struct ParentHealthView: View {
                 if !health.issues
                     .isEmpty
                 {
-                    Section("Needs attention") { ForEach(Array(health.issues.enumerated()), id: \.offset) { _, issue in Label(
+                    Section(current ? "Needs attention" : "Last reported issues") { ForEach(
+                        Array(health.issues.enumerated()),
+                        id: \.offset
+                    ) { _, issue in Label(
                         issue,
                         systemImage: "exclamationmark.triangle"
                     ) } }
                 }
+            } else if model.supports("health-v1") {
+                ContentUnavailableView {
+                    Label("No health observation loaded", systemImage: "server.rack")
+                } description: {
+                    Text("Refresh to read the server's latest status. Unknown values stay unknown until the server reports them.")
+                } actions: {
+                    if model.busy {
+                        ProgressView("Loading server status")
+                    } else {
+                        Button("Refresh server health") { Task { await model.loadHealth() } }
+                            .accessibilityIdentifier("parents.health.load")
+                    }
+                }
             } else {
                 FeatureUnavailableView(name: "Server health")
             }
-        }.navigationTitle("Server health").refreshable { await model.loadHealth() }.task { await model.loadHealth() }
+        }
     }
 }
 
@@ -119,7 +162,7 @@ struct ParentReviewInboxView: View {
         List {
             Section {
                 Text(
-                    "New playlist videos wait here for your review. Choose the collection in the import manager, inspect the selection, then approve only the videos you want."
+                    "New playlist videos wait here for your review. Open a snapshot, inspect the selection, then approve only the videos you want."
                 )
                 .font(.subheadline).foregroundStyle(.secondary)
             }
@@ -131,9 +174,14 @@ struct ParentReviewInboxView: View {
                         LabeledContent("Status", value: entry.status == "needsReview" ? "Needs review" : entry.status)
                         Text(entry.createdAt.formatted(date: .abbreviated, time: .shortened)).font(.caption).foregroundStyle(.secondary)
                         Button("Review in import manager", systemImage: "checklist") {
-                            do { manager = try ImportManagerDestination(url: ParentServer(model.importServerText).url) }
-                            catch { model.error = error.localizedDescription }
+                            do {
+                                manager = try ImportManagerDestination.review(
+                                    url: ParentServer(model.importServerText).url,
+                                    entry: entry
+                                )
+                            } catch { model.error = error.localizedDescription }
                         }.disabled(model.demo || model.busy)
+                            .accessibilityIdentifier("parents.review.open.\(entry.id)")
                     }
                 }
                 if model.reviewEntries.isEmpty {
@@ -143,12 +191,20 @@ struct ParentReviewInboxView: View {
                     .reviewCursor != nil
                 {
                     Button("Load more reviews") { Task { await model.loadInbox(more: true) } }.disabled(model.busy)
+                        .accessibilityIdentifier("parents.review.more")
                 }
             } else {
                 FeatureUnavailableView(name: "New-video inbox")
             }
         }.navigationTitle("Review inbox").refreshable { await model.loadInbox() }.task { await model.loadInbox() }
-            .sheet(item: $manager) { ImportManagerSheet(url: $0.url) }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button("Refresh", systemImage: "arrow.clockwise") { Task { await model.loadInbox() } }
+                        .disabled(model.busy || model.demo || !model.supports("review-inbox-v1"))
+                        .accessibilityIdentifier("parents.review.refresh")
+                }
+            }
+            .sheet(item: $manager) { ImportManagerSheet(url: $0.url, title: $0.title, reviewEntry: $0.reviewEntry) }
     }
 }
 

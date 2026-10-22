@@ -9,6 +9,7 @@
 import KidsAccounts
 import KidsApplication
 import KidsCatalog
+import KidsServerDiscovery
 
 // SPDX-License-Identifier: MPL-2.0
 import KidsDomain
@@ -18,6 +19,7 @@ struct KidsParentView: View {
     @ObservedObject
     var model: KidsAppModel
     var playbackPresentation: any KidsPlaybackPresentation = KidsPreviewPlaybackPresentation()
+    var onClose: (() -> Void)?
     @Environment(\.dismiss)
     private var dismiss
     @State
@@ -27,7 +29,9 @@ struct KidsParentView: View {
     @State
     private var confirmPIN = ""
     @State
-    private var serverURL = "http://1531server.local:8096"
+    private var serverURL = ""
+    @State
+    private var discoveredServer: LANServer?
     @State
     private var username = "kidsplayer"
     @State
@@ -51,13 +55,15 @@ struct KidsParentView: View {
     @State
     private var recovering = false
     @State
+    private var reconnecting = false
+    @State
     private var parentServiceURL = "http://192.168.10.100:8097"
     @State
     private var receiverToken = ""
     @FocusState
     private var speechFocused: Bool
     private var needsSetup: Bool {
-        model.binding == nil || model.requiresParent
+        model.binding == nil || model.requiresParent || reconnecting
     }
 
     var body: some View {
@@ -79,6 +85,10 @@ struct KidsParentView: View {
                             }
                         }.disabled(!model.gate.mayAttempt(at: .now))
                             .accessibilityIdentifier("kids.parent.unlock")
+                        if let status = model.parentPhoneAuthorizationStatus {
+                            Text(status).font(.footnote).foregroundStyle(.secondary)
+                                .accessibilityIdentifier("kids.parent.phone.status")
+                        }
                         Text("The parent PIN is separate from the Jellyfin password.").foregroundStyle(.secondary)
                         KidsParentAction("Recover parent setup") { recovering = true
                             message = "Sign in with the previous kids account to reset synced playback setup. Your media stays unchanged."
@@ -122,6 +132,16 @@ struct KidsParentView: View {
                                         message = "Recovery could not finish. Old requests were retained and viewing stays held."
                                     }
                                 }
+                            }
+                        }
+                        if let binding = model.binding, let url = model.serverAddress {
+                            LANParentServiceChooser(jellyfin: LANServer(
+                                id: binding.serverID,
+                                name: "Family Jellyfin",
+                                url: url
+                            )) { service in
+                                parentServiceURL = service.url.absoluteString
+                                receiverToken = ""
                             }
                         }
                         TextField("Parent service address", text: $parentServiceURL).textInputAutocapitalization(.never)
@@ -174,7 +194,7 @@ struct KidsParentView: View {
                     Section { Text(message).foregroundStyle(.orange) }
                 }
                 Section { KidsParentAction("Back to kids") { model.lockParents()
-                    dismiss()
+                    close()
                 } }
             }
             .navigationTitle("Parents")
@@ -202,6 +222,14 @@ struct KidsParentView: View {
             .task { selectedShow = model.selectedShow ?? model.catalog[.shows]?.first
                 await loadEpisodes()
             }
+            .task(
+                id: "\(model.unlocked)-\(recovering)-\(model.accountRevision)-\(model.viewingControlRevision)"
+            ) {
+                if !model.unlocked, !recovering {
+                    await model.waitForParentPhoneAuthorization()
+                }
+            }
+            .onDisappear { model.cancelParentPhoneAuthorization() }
             .onChange(of: selectedShow) { Task { await loadEpisodes() } }
             .onChange(of: model.unlocked) {
                 if model.unlocked {
@@ -211,8 +239,16 @@ struct KidsParentView: View {
                 }
             }
             .onExitCommand { model.lockParents()
-                dismiss()
+                close()
             }
+        }
+    }
+
+    private func close() {
+        if let onClose {
+            onClose()
+        } else {
+            dismiss()
         }
     }
 
@@ -222,16 +258,18 @@ struct KidsParentView: View {
                 "Use a non-admin Jellyfin account with access only to Kid TV and Kid Movies. The app verifies permissions before showing any artwork."
             )
             .foregroundStyle(.secondary)
-            TextField("Server URL", text: $serverURL).autocorrectionDisabled().textInputAutocapitalization(.never)
+            LANServerChooser(expectedID: model.binding?.serverID) { server in
+                discoveredServer = server
+                serverURL = server.url.absoluteString
+                password = ""
+            }
+            TextField("Server URL (manual fallback)", text: $serverURL).autocorrectionDisabled().textInputAutocapitalization(.never)
             TextField("Username", text: $username).autocorrectionDisabled().textInputAutocapitalization(.never)
             SecureField("Jellyfin password", text: $password)
-            SecureField(
-                recovering ? "New parent PIN (4-8 digits)" : (model.hasParentPIN ? "Confirm parent PIN" : "Choose parent PIN (4-8 digits)"),
-                text: $newPIN
-            )
-            .keyboardType(.numberPad)
             if !model.hasParentPIN || recovering {
-                SecureField("Confirm parent PIN", text: $confirmPIN).keyboardType(.numberPad)
+                SecureField(recovering ? "New parent PIN (4-8 digits)" : "Choose parent PIN (4-8 digits)", text: $newPIN)
+                    .keyboardType(.numberPad)
+                SecureField("Confirm new parent PIN", text: $confirmPIN).keyboardType(.numberPad)
             }
             KidsParentAction(busy ? "Connecting…" : "Connect") {
                 guard (model.hasParentPIN && !recovering) || newPIN == confirmPIN else { message = "The parent PINs must match."
@@ -239,14 +277,22 @@ struct KidsParentView: View {
                 }
                 busy = true
                 message = nil
+                let address = serverURL
+                let loginName = username
+                let secret = password
+                let pinValue = newPIN
+                let recovery = recovering
                 Task {
                     do {
+                        if let discoveredServer, discoveredServer.url.absoluteString == address {
+                            _ = try await LANDiscoveryClient.verifyPublicServer(discoveredServer, expectedID: model.binding?.serverID)
+                        }
                         try await model.signIn(
-                            urlText: serverURL,
-                            username: username,
-                            password: password,
-                            parentPIN: newPIN,
-                            recovering: recovering
+                            urlText: address,
+                            username: loginName,
+                            password: secret,
+                            parentPIN: pinValue,
+                            recovering: recovery
                         )
                         password = ""
                         newPIN = ""
@@ -254,8 +300,9 @@ struct KidsParentView: View {
                         busy = false
                         if !model.requiresParent {
                             recovering = false
+                            reconnecting = false
                             model.lockParents()
-                            dismiss()
+                            close()
                         }
                     } catch is CancellationError {
                         busy = false
@@ -266,7 +313,7 @@ struct KidsParentView: View {
                             "Check the account, server address, and parent PIN."
                     }
                 }
-            }.disabled(busy || password.isEmpty || newPIN.isEmpty)
+            }.disabled(busy || password.isEmpty || ((!model.hasParentPIN || recovering) && newPIN.isEmpty))
         }
     }
 
@@ -300,7 +347,7 @@ struct KidsParentView: View {
                movie.kind == .movie
             {
                 KidsParentAction("Start this movie over") { model.startMovieOver(movie)
-                    dismiss()
+                    close()
                 }.accessibilityIdentifier("kids.parent.startover")
             }
         }
@@ -323,7 +370,7 @@ struct KidsParentView: View {
                 KidsParentAction("Play once") {
                     guard let show = selectedShow else { return }
                     model.playOnce(show: show, episode: episode)
-                    dismiss()
+                    close()
                 }.accessibilityIdentifier("kids.parent.playonce.\(episode.id)")
                 KidsParentAction("Set Next here") { model.chooseNext(episode)
                     message = "Next will start at \(episode.name)."
@@ -355,6 +402,13 @@ struct KidsParentView: View {
                 Task { await model.refresh(forceMetadata: true)
                     message = model.problem ?? "Connected. Both approved libraries verified."
                 }
+            }
+            KidsParentAction("Find this server again") {
+                model.touchGate()
+                serverURL = model.serverAddress?.absoluteString ?? ""
+                discoveredServer = nil
+                reconnecting = true
+                message = "Choose this server's new address and confirm the existing kids account and parent PIN. Saved playback settings are kept."
             }
             KidsParentAction("Replace the Jellyfin account") { model.touchGate()
                 Task { await model.signOut() }

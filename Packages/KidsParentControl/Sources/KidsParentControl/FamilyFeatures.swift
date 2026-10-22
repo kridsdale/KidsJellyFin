@@ -33,6 +33,26 @@ public struct ViewingRoutine: Codable, Identifiable, Equatable, Sendable {
         self.enabled = enabled
     }
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case weekdays
+        case startMinute
+        case endMinute
+        case enabled
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        // The backend validates nested routine IDs as canonical UUID strings.
+        try values.encode(id.uuidString.lowercased(), forKey: .id)
+        try values.encode(name, forKey: .name)
+        try values.encode(weekdays, forKey: .weekdays)
+        try values.encode(startMinute, forKey: .startMinute)
+        try values.encode(endMinute, forKey: .endMinute)
+        try values.encode(enabled, forKey: .enabled)
+    }
+
     public func validate() throws {
         guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, name.count <= 80,
               !weekdays.isEmpty, Set(weekdays).count == weekdays.count,

@@ -6,6 +6,8 @@
 // Copyright (c) 2026 Jellyfin & Jellyfin Contributors
 //
 
+import KidsServerDiscovery
+
 // SPDX-License-Identifier: MPL-2.0
 import SwiftUI
 
@@ -15,6 +17,8 @@ struct KidsParentsApp: App {
     private var scenePhase
     @State
     private var model = ParentsModel(demo: ProcessInfo.processInfo.arguments.contains("--parent-preview"))
+    @State
+    private var showPasswordUnlock = false
 
     var body: some Scene {
         WindowGroup {
@@ -25,8 +29,23 @@ struct KidsParentsApp: App {
                     } description: {
                         Text("Unlock to manage your family's viewing.")
                     } actions: {
-                        Button("Unlock") { Task { await model.unlock() } }.buttonStyle(.borderedProminent)
-                        Button("Use Jellyfin sign-in instead") { Task { await model.signOut() } }.disabled(model.busy)
+                        Button("Unlock") { Task { await model.unlock() } }.buttonStyle(.borderedProminent).disabled(model.busy)
+                        if showPasswordUnlock {
+                            Text("Sign in as \(model.credential?.name ?? "your saved parent account")")
+                                .font(.footnote).foregroundStyle(.secondary)
+                            SecureField("Jellyfin password", text: $model.password)
+                                .textContentType(.password).textFieldStyle(.roundedBorder)
+                                .disabled(model.busy)
+                                .accessibilityIdentifier("parents.unlock.password")
+                            Button("Sign in and unlock") { Task { await model.unlockWithPassword() } }
+                                .disabled(model.busy || model.password.isEmpty)
+                                .accessibilityIdentifier("parents.unlock.signIn")
+                        } else {
+                            Button("Use Jellyfin sign-in instead") {
+                                model.password = ""
+                                showPasswordUnlock = true
+                            }.disabled(model.busy)
+                        }
                     }
                 } else if model.signedIn {
                     if model.demo, let screen = ParentFeaturePreview.requestedScreen {
@@ -39,6 +58,14 @@ struct KidsParentsApp: App {
                 }
             }
             .tint(.teal)
+            .fullScreenCover(item: $model.tvParentAuthorizationPrompt, onDismiss: {
+                model.tvParentAuthorizationDidDismiss()
+            }) { prompt in
+                TVParentAuthorizationView(model: model, prompt: prompt)
+            }
+            .task(id: model.tvParentAuthorizationScope) {
+                model.updateTVParentAuthorizationListener(isForeground: scenePhase == .active)
+            }
             .alert("Parent controls", isPresented: Binding(get: { model.error != nil }, set: {
                 if !$0 {
                     model.error = nil
@@ -46,10 +73,16 @@ struct KidsParentsApp: App {
             })) {
                 Button("OK") { model.error = nil }
             } message: { Text(model.error ?? "") }
+            .onChange(of: model.locked) { _, locked in
+                if !locked {
+                    showPasswordUnlock = false
+                }
+            }
             .onChange(of: scenePhase) { _, phase in
                 if phase == .background {
                     model.lock()
                 }
+                model.updateTVParentAuthorizationListener(isForeground: phase == .active)
             }
         }
     }
@@ -58,6 +91,11 @@ struct KidsParentsApp: App {
 struct ParentSignIn: View {
     @Bindable
     var model: ParentsModel
+    var onConnected: () -> Void = {}
+    @State
+    private var discoveredServer: LANServer?
+    @State
+    private var verifyingServer = false
     var body: some View {
         NavigationStack {
             Form {
@@ -69,24 +107,50 @@ struct ParentSignIn: View {
                     }.padding(.vertical, 16)
                 }.listRowBackground(Color.clear)
                 Section("Your Jellyfin server") {
-                    TextField("Server address", text: $model.serverText).keyboardType(.URL).textInputAutocapitalization(.never)
+                    LANServerChooser(expectedID: model.credential?.serverID) { server in
+                        discoveredServer = server
+                        model.serverText = server.url.absoluteString
+                        model.password = ""
+                    }
+                    TextField("Server address (manual fallback)", text: $model.serverText).keyboardType(.URL)
+                        .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     TextField("Administrator username", text: $model.username).textContentType(.username)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                     SecureField("Password", text: $model.password).textContentType(.password)
                     Button {
-                        Task { await model.signIn() }
+                        let address = model.serverText
+                        verifyingServer = true
+                        Task {
+                            defer { verifyingServer = false }
+                            do {
+                                if let discoveredServer, discoveredServer.url.absoluteString == address {
+                                    _ = try await LANDiscoveryClient.verifyPublicServer(
+                                        discoveredServer,
+                                        expectedID: model.credential?.serverID
+                                    )
+                                }
+                                guard model.serverText == address else { throw LANDiscoveryError.invalidAddress }
+                                await model.signIn()
+                                if model.signedIn, model.error == nil {
+                                    onConnected()
+                                }
+                            } catch {
+                                model.password = ""
+                                model.error = error.localizedDescription
+                            }
+                        }
                     } label: {
                         HStack { Text("Connect as parent")
                             Spacer()
-                            if model.busy {
+                            if model.busy || verifyingServer {
                                 ProgressView()
                             } else {
                                 Image(systemName: "arrow.right")
                             }
                         }
-                    }.disabled(model.busy || model.username.isEmpty || model.password.isEmpty)
-                }
+                    }.disabled(model.busy || verifyingServer || model.username.isEmpty || model.password.isEmpty)
+                }.disabled(model.busy || verifyingServer)
                 Section {
                     Label("Use an adult administrator account", systemImage: "person.badge.key")
                     Text("Your sign-in stays in this iPhone's Keychain. Passwords aren't saved. Connect over your home network.")
@@ -113,12 +177,6 @@ struct ParentTabs: View {
                 ParentSettingsView(model: model).tabItem { Label("Settings", systemImage: "gearshape") }
             }
             .task(id: model.selectedChild) { await model.loadProfile() }
-            .task {
-                while !Task.isCancelled {
-                    do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                    await model.pollControls()
-                }
-            }
         }
     }
 }

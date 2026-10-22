@@ -9,6 +9,15 @@
 // SPDX-License-Identifier: MPL-2.0
 import Foundation
 
+/// Only an exact parent mutation revision conflict proves that a new command
+/// may be retried against fresh state. Other failures leave the outcome unknown.
+public struct ParentRevisionConflict: Error, LocalizedError, Equatable, Sendable {
+    public init() {}
+    public var errorDescription: String? {
+        "The setting changed again. Refresh before trying again."
+    }
+}
+
 public enum ParentControlError: Error, LocalizedError, Equatable {
     case invalidAddress
     case invalidPlaylist
@@ -143,6 +152,8 @@ public struct ControlledTV: Codable, Identifiable, Sendable {
     public let childUserID: String
     public let online: Bool
     public let canEnforceDeadline: Bool
+    /// Authoritative activation state. Missing is unknown, never disabled.
+    public let enforcementEnabled: Bool?
     public let revision: Int
     public let countdown: ParentCountdown?
 }

@@ -28,6 +28,33 @@ class ReceiverEvidenceRevisionTests(unittest.TestCase):
             (root / "Packages/KidsViewingControl/Sources/KidsViewingControl/Lease.swift").write_text("// revised lease gate\n")
             self.assertNotEqual(before, MODULE.implementation_digest(root))
 
+
+    def test_catalog_eligibility_changes_the_embedded_evidence_identity(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.populate(root)
+            domain = root / "Packages/KidsDomain/Sources/KidsDomain"
+            domain.mkdir(parents=True, exist_ok=True)
+            source = domain / "Eligibility.swift"
+            source.write_text("// initial eligibility\n")
+            before = MODULE.implementation_digest(root)
+            source.write_text("// revised eligibility\n")
+            self.assertNotEqual(before, MODULE.implementation_digest(root))
+
+    def test_symlinked_catalog_module_is_rejected(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            self.populate(root)
+            domain = root / "Packages/KidsDomain/Sources/KidsDomain"
+            if domain.exists():
+                for source in domain.iterdir():
+                    source.unlink()
+                domain.rmdir()
+            domain.parent.mkdir(parents=True, exist_ok=True)
+            domain.symlink_to(root / "Packages/KidsApplication/Sources/KidsApplication", target_is_directory=True)
+            with self.assertRaisesRegex(ValueError, "implementation_symlink"):
+                MODULE.implementation_digest(root)
+
     def test_symlinked_receiver_source_is_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

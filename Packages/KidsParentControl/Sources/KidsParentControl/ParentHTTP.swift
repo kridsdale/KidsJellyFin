@@ -48,10 +48,30 @@ private struct ReceiverConflictBody: Decodable { let error: String }
 struct ParentHTTP: Sendable {
     let server: ParentServer
     let transport: any ParentHTTPTransport
+    var diagnostics: @Sendable (ParentRequestTrace.Record) -> Void = ParentControlDiagnostics.log
 
     func request<T: Decodable & Sendable>(
         _ path: String, method: String = "GET", headers: [String: String] = [:],
-        query: [URLQueryItem] = [], body: Data? = nil, receiverEvent: Bool = false, receiverMutation: Bool = false
+        query: [URLQueryItem] = [], body: Data? = nil, receiverEvent: Bool = false, receiverMutation: Bool = false,
+        parentMutation: Bool = false
+    ) async throws -> T {
+        let trace = ParentRequestTrace(path: path, method: method, sink: diagnostics)
+        do {
+            let value: T = try await performRequest(
+                path, method: method, headers: headers, query: query, body: body,
+                receiverEvent: receiverEvent, receiverMutation: receiverMutation, parentMutation: parentMutation, trace: trace
+            )
+            trace.finish()
+            return value
+        } catch {
+            trace.finish(error: error)
+            throw error
+        }
+    }
+
+    private func performRequest<T: Decodable & Sendable>(
+        _ path: String, method: String = "GET", headers: [String: String] = [:],
+        query: [URLQueryItem], body: Data?, receiverEvent: Bool, receiverMutation: Bool, parentMutation: Bool, trace: ParentRequestTrace
     ) async throws -> T {
         var parts = URLComponents(url: server.url.appendingPathComponent(path), resolvingAgainstBaseURL: false)!
         parts.queryItems = query.isEmpty ? nil : query
@@ -61,6 +81,7 @@ struct ParentHTTP: Sendable {
         request.cachePolicy = .reloadIgnoringLocalCacheData
         request.allHTTPHeaderFields = headers.merging(["Accept": "application/json", "Content-Type": "application/json"]) { old, _ in old }
         let (data, response) = try await transport.send(request)
+        trace.response(response.statusCode)
         switch response.statusCode {
         case 200 ... 299: break
         case 401, 403: throw ParentControlError.unauthorized
@@ -71,6 +92,12 @@ struct ParentHTTP: Sendable {
         case 409 where receiverMutation:
             let code = data.count <= 4096 ? (try? JSONDecoder().decode(ReceiverConflictBody.self, from: data).error) : nil
             throw ReceiverMutationConflict(code: code)
+        case 409 where parentMutation:
+            let code = data.count <= 4096 ? (try? JSONDecoder().decode(ReceiverConflictBody.self, from: data).error) : nil
+            if code == "revision_conflict" {
+                throw ParentRevisionConflict()
+            }
+            throw ParentControlError.conflict
         case 409, 412: throw ParentControlError.conflict
         default: throw ParentControlError.http(response.statusCode)
         }

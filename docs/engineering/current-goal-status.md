@@ -1,7 +1,88 @@
 # Current engineering goal disposition
 
-The next human-requested goal is [automatic LAN server discovery in both client
-apps](queued-goals.md), queued after the active Parents integration goal.
+Current task state and dependencies are maintained in **Beads**, using
+`bd --sandbox` in this checkout. The human priority reset on October20 makes
+**basic working child and parent apps** the active delivery goal, `kids-wr7.7`.
+Build source first, then verify the actual user flows. Exhaustive all-thirteen
+acceptance, production metrics, codec/two-receiver reliability, physical devices,
+live iCloud and TestFlight remain separate work; they do not gate basic delivery.
+The dated checkpoints below retain their historical evidence and instructions;
+the current canonical Beads and latest human instructions supersede old gates.
+
+Both current simulator app builds passed. The child played a real episode for
+222.494 seconds with backend-accounted usage. Native movie playback, movie
+resume, Shuffle, parent Pause/Resume, pairing, show availability and daily
+allowance saves passed. Original show/budget settings were restored.
+
+The deployed backend f8db fixed Skip's SQLite writer contention. One affected
+native Skip on October20 advanced actual video from The C-Team to The Chipettes;
+remote25 is closed. The native parent history now shows actual scoped reports
+and genuine incomplete-session labels; basic history28 is closed. Extended
+failure matrices remain explicit in deferred13 rather than blocking basic use.
+
+Canonical backend acquisition, indexing, ambient binding, persistent service
+and bounded usage implementation are closed; local mirrors17/32/56 are reconciled
+without rerunning owner work. BlueLake is the human-designated orchestrator and
+queries canonical backend ready/in-progress Beads at milestone transitions;
+GreenCastle receives execution instructions through Agent Mail.
+
+Basic delivery remains open in `kids-wr7.7.3`. On October20 the one natural
+countdown expiry initially showed black; normal foregrounding of that same TV
+process later rendered birds. The automatic-expiry failure remains recorded.
+The ambient recovery fix and canonical routine UUID fix have built and passed
+their focused regressions. Current signed TV source is `f619167e`, installed
+against the unchanged `f8db8fb8` backend through its supported same-token
+installation authorization. Tokens, epoch, history, scope and expiration were
+preserved. Operator task `jf-server.3.5` is closed; this is installation evidence,
+not a fresh countdown or full-core acceptance claim.
+
+Native parent shuffle preferences and individual-episode availability now save,
+read back and restore their originals. Weekly routine creation/removal also pass
+after correcting UUID encoding and a retained SwiftUI array-index binding crash.
+Basic22/26/29 are closed; their extended matrices remain in deferred13. One real
+budget bonus changed remaining42 to52 minutes with watched17 unchanged; the
+original No daily limit setting is confirmed restored, with genuine history kept.
+Countdown extra-time remains unobserved. iOS Simulator reboots between client
+automation cases, preserving installed apps, pairing and data.
+
+The separate short finish-episode case could not reach video: one Next received
+intent503, then an automatic replay200, while the native UI returned to its title.
+No finish command or new quiet timer was submitted. Backend basic blocker
+`jf-server.3.6` is genuinely ready after removing an inherited final-acceptance
+scheduler gate that hid its child implementation work. It also covers repeated
+parent dashboard503 and a committed allowance write reported as503. Actual error
+code capture is required before choosing among the distinct source paths; no
+speculative fix or repeated diagnostic loop is warranted. Root restored normal
+parent controls OFF and stopped the TV while preserving its journal.
+
+Cross-Mac handoffs use Agent Mail, with Beads retaining task ownership. The
+continuation heartbeat is paused. The user-level event watcher is installed;
+live Desktop wake remains unverified, with last observed watcher status
+`WAITING_FOR_LOCAL_RESOURCE`. Agent Mail delivery works; delivery alone does not
+establish that the backend owner has resumed. Coordination infrastructure is
+independent of app delivery and uses no administrator/sudo.
+
+The October20 UI request is implemented in signed simulator builds: Parents
+uses an animated right-quarter sidebar in browse, normal playback and ambient
+presentation. Native synthetic-catalog/player UI checks measured480 of1920
+points, retained PIN/Unlock, removed the iPhone action button. A focused native UI test passed the official
+remote Menu action and explicit Back to kids dismissal (one test,13.456seconds);
+keyboard Escape was not a remote Menu event. These are layout/focus checks, not a
+new live media or automatic countdown acceptance claim. Final TV source is
+`ffa02993`; the paired TV remains stopped on its prior `f619167e` installation.
+Reconnect reuses a current parent unlock instead of demanding a second existing
+PIN; the stored PIN remains unchanged. Its focused gate regression passed1test
+in0.081seconds. First setup and PIN recovery still require choosing a new PIN.
+
+PIN remains the standard path. Displaying its UI automatically starts one finite
+background phone request when paired; either correct PIN or authenticated phone
+approval may complete it. The Parents app has the same-LAN discovery and
+full-screen Yes/No implementation, with foreground/scope/expiry cancellation.
+Both client builds pass and four focused authorization contract tests pass.
+End-to-end approval remains blocked on canonical backend `jf-server.3.7` (local
+reference `kids-wr7.7.7`); source is not deployed backend support. Push notifications
+are not implemented. Backend `jf-server.3.6` remains the earlier basic503 blocker;
+there is no owner readiness handoff for either task yet.
 
 ## Active Parents delivery goal — 2026-10-17
 

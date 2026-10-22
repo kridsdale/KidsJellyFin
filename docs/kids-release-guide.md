@@ -1,5 +1,7 @@
 # KidsJellyFin
 
+The enforceable engineering process is defined in [source control](engineering/source-control-policy.md), [QA](engineering/qa-policy.md), and [release and rollback](engineering/release-policy.md). This guide describes product scope and operational use; the policies define release gates and records.
+
 This tvOS fork opens on Shows and exposes only Kid TV and Kid Movies. A title offers Next and Shuffle; a movie offers one Play, Resume, or Play again action. The existing Swiftfin VLC playback foundation remains responsible for formats and streaming.
 
 RC1 is ready for simulator evaluation. See [the evidence record](kids-validation.md) and [requirement coverage](kids-requirements.md) for the passed checks and their limits. The approved [full product brief](kids-product-brief.pdf) defines the scope; the seven-page memo is a review aid.

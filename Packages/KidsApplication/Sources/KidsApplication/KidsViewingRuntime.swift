@@ -16,6 +16,21 @@ import KidsPlaybackSession
 import KidsViewingControl
 import UIKit
 
+struct KidsViewingProgressSample: Codable, Sendable {
+    let sessionID: UUID
+    let timeNS: UInt64
+    let previousTimeNS: UInt64?
+    let previousPosition: Double?
+    let previousPlaying: Bool?
+    let position: Double
+    let playing: Bool
+    let paused: Bool
+    let buffering: Bool
+    let preparing: Bool
+    let creditedInterval: Double
+    let ignoredStaleTimestamp: Bool
+}
+
 @MainActor
 final class KidsViewingRuntime {
     static var clientRevision: ReceiverBuildRevision? {
@@ -28,7 +43,10 @@ final class KidsViewingRuntime {
     let api: KidsReceiverAPI
     private let transport: any ParentHTTPTransport
     private let ledgerDirectory: URL
-    var events: [ReceiverEvent] = []
+    var events: [ReceiverEvent] {
+        admission.events
+    }
+
     var ambientSessionID: UUID?
     var ambientControlID: UUID?
     var ambientShowID: String?
@@ -40,7 +58,10 @@ final class KidsViewingRuntime {
     var epochRecoveryRequired = false
     var recoveringEpoch = false
     var drainingUnconfirmedEvidence = false
-    var lastFrame: (sessionID: UUID, position: Double, uptime: UInt64)?
+    var lastFrame: (sessionID: UUID, position: Double, uptime: UInt64, playing: Bool)?
+    // Diagnostic only: first64 and latest64 observations, never persisted or sent automatically.
+    var progressSamples: [KidsViewingProgressSample] = []
+    var progressAccumulator = ViewingProgressAccumulator()
     var accumulatedPlaying = 0.0
     var lastProgressNS: UInt64 = 0
     var lastControlID: UUID?
@@ -274,6 +295,7 @@ extension KidsAppModel {
 
     public func foregroundViewingControls() {
         receiverForeground = true
+        ParentControlDiagnostics.loop(.foreground, foreground: true, paired: viewingRuntime != nil)
         if ambientMode, let controller = activePlayback, controller.driver.frame.paused {
             controller.driver.togglePlayPause()
         }
@@ -290,7 +312,14 @@ extension KidsAppModel {
     }
 
     public func monitorViewingControls() async {
-        guard !isPreview, let runtime = viewingRuntime else { return }
+        guard !isPreview else { return }
+        ParentControlDiagnostics.loop(.started, foreground: receiverForeground, paired: viewingRuntime != nil)
+        defer {
+            ParentControlDiagnostics.loop(
+                .stopped, foreground: receiverForeground, paired: viewingRuntime != nil, cancelled: Task.isCancelled
+            )
+        }
+        guard let runtime = viewingRuntime else { return }
         defer {
             runtime.ambientTask?.cancel()
             runtime.ambientTask = nil
@@ -307,8 +336,15 @@ extension KidsAppModel {
     private func viewingPolicyLoop(_ runtime: KidsViewingRuntime) async {
         while !Task.isCancelled, viewingRuntime === runtime {
             if receiverForeground {
-                do { try await synchronizeViewingPolicy(runtime) }
-                catch {
+                ParentControlDiagnostics.loop(.refreshStarted, foreground: true, paired: viewingRuntime === runtime)
+                do {
+                    try await synchronizeViewingPolicy(runtime)
+                    ParentControlDiagnostics.loop(.refreshFinished, foreground: receiverForeground, paired: viewingRuntime === runtime)
+                } catch {
+                    ParentControlDiagnostics.loop(
+                        .refreshFailed, foreground: receiverForeground, paired: viewingRuntime === runtime,
+                        cancelled: Task.isCancelled, error: error
+                    )
                     guard viewingRuntime === runtime else { return }
                     viewingControlStatus = runtime.reportingFault ? "Viewing is held until parent controls can be confirmed." :
                         (runtime.configuration
@@ -416,7 +452,11 @@ extension KidsAppModel {
                 await stopPlayback(endSession: false)
                 guard viewingRuntime === runtime, !Task.isCancelled else { return }
             }
-            runtime.events.removeFirst()
+            do { try runtime.admission.acknowledgeEvent(event.eventID) }
+            catch {
+                runtime.reportingFault = true
+                throw error
+            }
         }
         // Keep the per-refresh send batch bounded, but never fetch a new grant
         // midway through retiring an unconfirmed controller's old evidence.
@@ -475,7 +515,10 @@ extension KidsAppModel {
                 !runtime.lease.deadlineReached(at: DispatchTime.now().uptimeNanoseconds)
             viewingHeld = ambientMode || (!available && !runtime.lease.allowsNormalViewing(at: DispatchTime.now().uptimeNanoseconds))
             catalog = rawCatalog.mapValues { filteredForViewing($0, binding: binding) }
-            invalidateEpisodeMetadata()
+            // A policy refresh changes eligibility, not verified library metadata.
+            // Preserve the identity-bound cache and in-flight episode scans; each
+            // caller still filters the result against the current viewing policy.
+            episodeCache = episodeCache.mapValues { filteredForViewing($0, binding: binding) }
             viewingControlStatus = viewingHeld ? "Viewing is finished for now." : "Parent viewing rules are active."
             await applyViewingCommands(runtime)
         }
@@ -550,23 +593,37 @@ extension KidsAppModel {
                 {
                     await stopPlayback()
                 }
-                sampleViewingProgress(runtime, at: now)
-                let ambientAuthority = runtime.lease.ambientCommandID(latchedControlID: runtime.configuration.latchedControlID, at: now)
-                if let controller = activePlayback, controller.id == runtime.ambientSessionID,
-                   ambientAuthority == nil || ambientAuthority != runtime.ambientControlID || controller.item.id != runtime.lease.policy?
-                       .birdItemID
-                {
-                    await stopPlayback(endSession: false)
-                }
-                if ambientMode, ambientAuthority != nil, activePlayback == nil, !runtime.ambientStarting, runtime.ambientAttempts < 3 {
-                    // Authorization/preparation may be slow; the lease watchdog remains independent.
-                    runtime.ambientStarting = true
-                    runtime.ambientTask = Task { await self.startViewingAmbient(runtime)
-                        runtime.ambientStarting = false
-                    }
-                }
+                // Admission may suspend or publish a later start baseline.
+                sampleViewingProgress(runtime, at: DispatchTime.now().uptimeNanoseconds)
+                await tickViewingAmbient(runtime, at: now)
             }
             do { try await Task.sleep(for: .seconds(1)) } catch { return }
+        }
+    }
+
+    func tickViewingAmbient(_ runtime: KidsViewingRuntime, at now: UInt64) async {
+        guard viewingRuntime === runtime, runtime.configuration.activated, receiverForeground else { return }
+        let authority = runtime.lease.ambientCommandID(latchedControlID: runtime.configuration.latchedControlID, at: now)
+        if let controller = activePlayback, controller.id == runtime.ambientSessionID {
+            if authority == nil || authority != runtime.ambientControlID || controller.item.id != runtime.lease.policy?.birdItemID {
+                await stopPlayback(endSession: false)
+            } else if controller.recovery || controller.failed || controller.driver.frame.failed {
+                // Ambient has no manual recovery controls. Retire the paused
+                // controller so the existing bounded retry can reach quiet fallback.
+                queueViewingEvent(.ambientFailed, controller: controller)
+                await stopPlayback(endSession: false)
+            }
+        }
+        guard viewingRuntime === runtime, runtime.configuration.activated, receiverForeground else { return }
+        let currentAuthority = runtime.lease.ambientCommandID(
+            latchedControlID: runtime.configuration.latchedControlID, at: DispatchTime.now().uptimeNanoseconds
+        )
+        if ambientMode, currentAuthority != nil, activePlayback == nil, !runtime.ambientStarting, runtime.ambientAttempts < 3 {
+            // Authorization/preparation may be slow; the lease watchdog remains independent.
+            runtime.ambientStarting = true
+            runtime.ambientTask = Task { await self.startViewingAmbient(runtime)
+                runtime.ambientStarting = false
+            }
         }
     }
 
@@ -663,19 +720,33 @@ extension KidsAppModel {
         case .commandApplied, .commandFailed: revision = controlRevision ?? runtime.lease.policy?.revision ?? 0
         default: revision = runtime.lease.policy?.revision ?? 0
         }
-        runtime.events.append(ReceiverEvent(
+        let position = controller.map { controller in
+            let terminalPosition: Double? = if kind == .ended || kind == .stopped,
+                                               let sample = runtime.lastFrame, sample.sessionID == controller.id
+            {
+                sample.position
+            } else {
+                nil
+            }
+            let position = observedPosition ?? terminalPosition ?? controller.seconds
+            return max(0, position.isFinite ? position : 0)
+        }
+        let event = ReceiverEvent(
             deviceID: runtime.lease.policy?.deviceID ?? runtime.configuration.deviceID.uuidString,
             childUserID: runtime.configuration.childUserID,
             policyRevision: revision,
             playbackSessionID: controller?.id.uuidString,
             itemID: controller?.item.id,
             kind: kind,
-            positionSeconds: controller.map { let position = observedPosition ?? $0.seconds
-                return max(0, position.isFinite ? position : 0)
-            },
+            positionSeconds: position,
             elapsedPlayingSeconds: elapsed,
             commandID: control
-        ))
+        )
+        do { try runtime.admission.appendEvent(event) }
+        catch {
+            runtime.reportingFault = true
+            return
+        }
         if let terminalKey {
             runtime.terminalReportKeys.append(terminalKey)
             if runtime.terminalReportKeys.count > 128 {
@@ -686,12 +757,26 @@ extension KidsAppModel {
             runtime.resumeObservation = nil
             runtime.announcedSessionID = controller?.id
             runtime.lastTransportState = nil
-            runtime.lastFrame = nil
+            // The reported start is the first observed position. Keep its
+            // monotonic baseline so a delayed first sample cannot discard
+            // playing time and then report a mismatched positive interval.
+            if kind == .started, let controller, let position {
+                let now = DispatchTime.now().uptimeNanoseconds
+                let frame = controller.driver.frame
+                let playing = frame.playing && !frame.paused && !frame.buffering && !frame.preparing
+                runtime.lastFrame = (controller.id, position, now, playing)
+                runtime.progressAccumulator.start(position: position, at: now, playing: playing)
+                runtime.lastProgressNS = now
+            } else {
+                runtime.lastFrame = nil
+                runtime.progressAccumulator = ViewingProgressAccumulator()
+            }
             runtime.accumulatedPlaying = 0
         } else if kind == .ended || kind == .stopped {
             runtime.announcedSessionID = nil
             runtime.lastTransportState = nil
             runtime.lastFrame = nil
+            runtime.progressAccumulator = ViewingProgressAccumulator()
             runtime.accumulatedPlaying = 0
         }
     }
@@ -703,32 +788,53 @@ extension KidsAppModel {
             return
         }
         let frame = controller.driver.frame
-        if let previous = runtime.lastFrame, previous.sessionID == controller.id, now >= previous.uptime {
-            runtime.accumulatedPlaying += ViewingLease.playingInterval(
-                previousPosition: previous.position,
-                position: frame.seconds,
-                elapsedSeconds: Double(now - previous.uptime) / 1_000_000_000,
-                playing: frame.playing,
-                paused: frame.paused,
-                buffering: frame.buffering || frame.preparing
-            )
+        let previous = runtime.lastFrame
+        let playing = frame.playing && !frame.paused && !frame.buffering && !frame.preparing && !frame.terminal
+        // A stopped native engine may reset its clock. Preserve the last actual
+        // observation for the terminal report rather than publishing a rewind.
+        let position: Double = if frame.terminal, let previous, previous.sessionID == controller.id, frame.seconds < previous.position {
+            previous.position
         } else {
+            frame.seconds
+        }
+        let stale = previous.map { $0.sessionID == controller.id && now < $0.uptime } ?? false
+        var interval = 0.0
+        defer {
+            runtime.progressSamples.append(KidsViewingProgressSample(
+                sessionID: controller.id, timeNS: now,
+                previousTimeNS: previous?.uptime, previousPosition: previous?.position,
+                previousPlaying: previous?.playing, position: frame.seconds,
+                playing: frame.playing, paused: frame.paused, buffering: frame.buffering,
+                preparing: frame.preparing, creditedInterval: interval, ignoredStaleTimestamp: stale
+            ))
+            if runtime.progressSamples.count > 128 {
+                runtime.progressSamples.remove(at: 64)
+            }
+        }
+        // A timestamp captured before an awaited start cannot replace its newer
+        // baseline. The next fresh sample must still include that interval.
+        guard !stale else { return }
+        if let previous, previous.sessionID == controller.id {
+            interval = runtime.progressAccumulator.sample(position: position, at: now, playing: playing)
+            runtime.accumulatedPlaying += interval
+        } else {
+            runtime.progressAccumulator.start(position: position, at: now, playing: playing)
             runtime.accumulatedPlaying = 0
         }
-        runtime.lastFrame = (controller.id, frame.seconds, now)
+        runtime.lastFrame = (controller.id, position, now, playing)
         let state: ReceiverEvent.Kind = frame.buffering || frame.preparing ? .buffering : (frame.paused ? .paused : .progress)
         if !frame.terminal, !frame.reachedEnd, state != runtime.lastTransportState {
             if runtime.accumulatedPlaying > 0 {
                 queueViewingEvent(
                     .progress,
                     controller: controller,
-                    elapsed: min(5, runtime.accumulatedPlaying),
-                    observedPosition: frame.seconds
+                    elapsed: runtime.accumulatedPlaying,
+                    observedPosition: position
                 )
                 runtime.accumulatedPlaying = 0
             }
             if state != .progress || runtime.lastTransportState != nil {
-                queueViewingEvent(state, controller: controller, observedPosition: frame.seconds)
+                queueViewingEvent(state, controller: controller, observedPosition: position)
             }
             runtime.lastTransportState = state
             runtime.lastProgressNS = now
@@ -736,23 +842,25 @@ extension KidsAppModel {
             queueViewingEvent(
                 .progress,
                 controller: controller,
-                elapsed: min(5, runtime.accumulatedPlaying),
-                observedPosition: frame.seconds
+                elapsed: runtime.accumulatedPlaying,
+                observedPosition: position
             )
             runtime.accumulatedPlaying = 0
             runtime.lastProgressNS = now
         }
     }
 
-    func flushViewingProgress(_ controller: KidsPlaybackController) {
+    func flushViewingProgress(_ controller: KidsPlaybackController, at now: UInt64 = DispatchTime.now().uptimeNanoseconds) {
         guard let runtime = viewingRuntime, runtime.configuration.activated, runtime.ambientSessionID != controller.id else { return }
-        sampleViewingProgress(runtime, at: DispatchTime.now().uptimeNanoseconds)
-        if runtime.accumulatedPlaying > 0 {
+        sampleViewingProgress(runtime, at: now)
+        if runtime.accumulatedPlaying > 0,
+           let sample = runtime.lastFrame, sample.sessionID == controller.id
+        {
             queueViewingEvent(
                 .progress,
                 controller: controller,
-                elapsed: min(5, runtime.accumulatedPlaying),
-                observedPosition: controller.driver.frame.seconds
+                elapsed: runtime.accumulatedPlaying,
+                observedPosition: sample.position
             )
             runtime.accumulatedPlaying = 0
         }

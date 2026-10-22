@@ -113,3 +113,21 @@ KidsCore/.swiftpm/
 # Apple API private keys must never enter source control
 AuthKey_*.p8
 __pycache__/
+
+# Ad hoc package builds and local QA output
+**/Package.resolved
+!KidsJellyFin.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved
+tmp/
+artifacts/**/*.png
+artifacts/**/*.json
+artifacts/**/*.jsonl
+artifacts/**/*.xcresult/
+releases/client/**/*.app/
+releases/client/**/*.xcarchive/
+
+# Beads / Dolt files (added by bd init)
+.dolt/
+*.db
+.beads-credential-key
+.beads/proxieddb/
+*.gate.lock*

@@ -161,31 +161,32 @@ struct RoutineEditor: View {
                 Text("TV is available during the enabled windows. Without enabled windows, there is no weekly restriction.")
                     .font(.subheadline)
             }
-            ForEach($routines) { $rule in
+            ForEach(routines) { snapshot in
+                let rule = routineBinding(snapshot)
                 Section {
-                    TextField("Routine name", text: $rule.name)
-                    Toggle("Enabled", isOn: $rule.enabled)
+                    TextField("Routine name", text: rule.name)
+                    Toggle("Enabled", isOn: rule.enabled)
                     ForEach(1 ... 7, id: \.self) { day in
                         Toggle(["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"][day - 1], isOn: Binding(
-                            get: { rule.weekdays.contains(day) }, set: { on in
+                            get: { rule.wrappedValue.weekdays.contains(day) }, set: { on in
                                 if on {
-                                    rule.weekdays = Array(Set(rule.weekdays + [day])).sorted()
+                                    rule.wrappedValue.weekdays = Array(Set(rule.wrappedValue.weekdays + [day])).sorted()
                                 } else {
-                                    rule.weekdays.removeAll { $0 == day }
+                                    rule.wrappedValue.weekdays.removeAll { $0 == day }
                                 }
                             }
                         ))
                     }
-                    DatePicker("From", selection: minuteBinding($rule.startMinute), displayedComponents: .hourAndMinute)
+                    DatePicker("From", selection: minuteBinding(rule.startMinute), displayedComponents: .hourAndMinute)
                         .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!)
-                    DatePicker("Until", selection: minuteBinding($rule.endMinute), displayedComponents: .hourAndMinute)
+                    DatePicker("Until", selection: minuteBinding(rule.endMinute), displayedComponents: .hourAndMinute)
                         .environment(\.timeZone, TimeZone(secondsFromGMT: 0)!)
-                    if (try? rule.validate()) ==
+                    if (try? rule.wrappedValue.validate()) ==
                         nil
                     {
                         Text("Choose days and an end time after the start.").foregroundStyle(.orange).font(.footnote)
                     }
-                    Button("Remove routine", role: .destructive) { routines.removeAll { $0.id == rule.id } }
+                    Button("Remove routine", role: .destructive) { routines.removeAll { $0.id == snapshot.id } }
                 }
             }
             Button("Add a viewing window", systemImage: "plus") { routines.append(ViewingRoutine()) }.disabled(routines.count >= 32)
@@ -200,6 +201,18 @@ struct RoutineEditor: View {
                 }
             } }.disabled(!valid || !model.canUse("routines-v1") || profile.childUserID != model.selectedChild)
         }.navigationTitle("Weekly routines")
+    }
+
+    private func routineBinding(_ snapshot: ViewingRoutine) -> Binding<ViewingRoutine> {
+        Binding(
+            // SwiftUI may retain a row's controls after removal. Resolve every
+            // access by identity instead of retaining an array-index binding.
+            get: { routines.first(where: { $0.id == snapshot.id }) ?? snapshot },
+            set: { updated in
+                guard let index = routines.firstIndex(where: { $0.id == snapshot.id }) else { return }
+                routines[index] = updated
+            }
+        )
     }
 
     private func minuteBinding(_ value: Binding<Int>) -> Binding<Date> {

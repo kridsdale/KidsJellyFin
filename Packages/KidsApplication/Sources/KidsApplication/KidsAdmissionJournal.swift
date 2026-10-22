@@ -12,7 +12,7 @@ import KidsAccounts
 import KidsDomain
 import KidsParentControl
 
-/// Captured mutation identity only. No token, cached permission, or media is stored.
+/// Captured mutations and exact pending evidence. No token, permission, or media is stored.
 @MainActor
 final class KidsAdmissionJournal {
     struct Intent: Codable, Equatable {
@@ -43,6 +43,29 @@ final class KidsAdmissionJournal {
         let scope: Scope
         var intent: Intent?
         var surrender: Surrender?
+        var events: [ReceiverEvent]
+
+        enum CodingKeys: String, CodingKey { case version, scope, intent, surrender, events }
+
+        init(scope: Scope) {
+            version = 2
+            self.scope = scope
+            events = []
+        }
+
+        init(from decoder: any Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            version = try values.decode(Int.self, forKey: .version)
+            scope = try values.decode(Scope.self, forKey: .scope)
+            intent = try values.decodeIfPresent(Intent.self, forKey: .intent)
+            surrender = try values.decodeIfPresent(Surrender.self, forKey: .surrender)
+            if version == 1 {
+                guard !values.contains(.events) else { throw KidsContractError.denied }
+                events = []
+            } else {
+                events = try values.decode([ReceiverEvent].self, forKey: .events)
+            }
+        }
     }
 
     private var state: State
@@ -53,6 +76,10 @@ final class KidsAdmissionJournal {
 
     var surrender: Surrender? {
         state.surrender
+    }
+
+    var events: [ReceiverEvent] {
+        state.events
     }
 
     init(configuration: KidsReceiverConfiguration, directory: URL) throws {
@@ -76,21 +103,48 @@ final class KidsAdmissionJournal {
         if FileManager.default.fileExists(atPath: url.path) {
             let attributes = try FileManager.default.attributesOfItem(atPath: url.path)
             guard attributes[.type] as? FileAttributeType == .typeRegular,
-                  ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 16384 else { throw KidsContractError.denied }
+                  ((attributes[.size] as? NSNumber)?.intValue ?? Int.max) <= 262_144 else { throw KidsContractError.denied }
             state = try JSONDecoder().decode(State.self, from: Data(contentsOf: url))
-            guard state.version == 1, state.scope == scope else { throw KidsContractError.denied }
+            guard (1 ... 2).contains(state.version), state.scope == scope else { throw KidsContractError.denied }
+            try validateEvents(state.events)
+            state.version = 2
             if let intent = state.intent, let surrender = state.surrender {
                 guard intent.commandID == surrender.intentID, intent.sessionID == surrender.sessionID,
                       intent.itemID == surrender.itemID else { throw KidsContractError.denied }
             }
         } else {
-            state = State(version: 1, scope: scope)
+            state = State(scope: scope)
         }
         // A new runtime has no surviving operational controller. Resolve an
         // unknown POST, then retire that exact intent BEFORE the first policy GET.
         if let intent = state.intent {
             try abandon(intent.commandID)
         }
+    }
+
+    func appendEvent(_ event: ReceiverEvent) throws {
+        guard state.events.count < 128,
+              !state.events.contains(where: { $0.eventID == event.eventID }) else { throw KidsContractError.denied }
+        try validateEvents([event])
+        try update { $0.events.append(event) }
+    }
+
+    func acknowledgeEvent(_ id: UUID) throws {
+        guard state.events.first?.eventID == id else { throw KidsContractError.denied }
+        try update { $0.events.removeFirst() }
+    }
+
+    private func validateEvents(_ events: [ReceiverEvent]) throws {
+        guard events.count <= 128, Set(events.map(\.eventID)).count == events.count,
+              events.allSatisfy({ event in
+                  event.deviceID == state.scope.device.uuidString && event.childUserID == state.scope.child &&
+                      event.policyRevision >= 0 && event.elapsedPlayingSeconds.isFinite &&
+                      (0 ... 30).contains(event.elapsedPlayingSeconds) &&
+                      (event.positionSeconds.map { $0.isFinite && $0 >= 0 } ?? true) &&
+                      [event.playbackSessionID, event.itemID].allSatisfy { value in
+                          value.map { !$0.isEmpty && $0.utf8.count <= 512 } ?? true
+                      }
+              }) else { throw KidsContractError.denied }
     }
 
     func stage(_ intent: Intent) throws {
@@ -146,7 +200,8 @@ final class KidsAdmissionJournal {
 
     /// Explicit parent recovery only. Preserve the complete old outbox before
     /// clearing local retry slots; the archive is never loaded as authority.
-    func archiveForEpochRecovery(events: [ReceiverEvent]) throws -> URL {
+    func archiveForEpochRecovery() throws -> URL {
+        let events = state.events
         struct Archive: Encodable {
             let reason: String
             let journal: State
@@ -156,7 +211,7 @@ final class KidsAdmissionJournal {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(Archive(reason: "command_epoch_changed", journal: state, events: events))
-        guard data.count <= 262_144 else { throw KidsContractError.denied }
+        guard data.count <= 524_288 else { throw KidsContractError.denied }
         let archive = url.deletingLastPathComponent().appendingPathComponent("epoch-recovery-\(UUID().uuidString).json")
         try data.write(to: archive, options: .withoutOverwriting)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: archive.path)
@@ -173,6 +228,7 @@ final class KidsAdmissionJournal {
         // A failed archive or synchronization never reaches this state change.
         try update { $0.intent = nil
             $0.surrender = nil
+            $0.events = []
         }
         return archive
     }
@@ -183,12 +239,19 @@ final class KidsAdmissionJournal {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
         let data = try encoder.encode(next)
-        guard data.count <= 16384 else { throw KidsContractError.denied }
+        guard data.count <= 262_144 else { throw KidsContractError.denied }
         try data.write(to: url, options: .atomic)
         try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
         let handle = try FileHandle(forWritingTo: url)
         try handle.synchronize()
         try handle.close()
+        let descriptor: Int32 = url.deletingLastPathComponent().withUnsafeFileSystemRepresentation { path in
+            guard let path else { return -1 }
+            return Darwin.open(path, O_RDONLY | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC)
+        }
+        guard descriptor >= 0 else { throw KidsContractError.denied }
+        defer { Darwin.close(descriptor) }
+        guard Darwin.fsync(descriptor) == 0 else { throw KidsContractError.denied }
         state = next
     }
 }

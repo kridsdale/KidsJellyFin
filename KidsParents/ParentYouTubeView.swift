@@ -20,6 +20,8 @@ struct ParentYouTubeView: View {
     private var manager: ImportManagerDestination?
     @State
     private var copied = false
+    @FocusState
+    private var playlistFocused: Bool
 
     private var validPlaylist: YouTubePlaylist? {
         try? YouTubePlaylist(playlist)
@@ -42,7 +44,11 @@ struct ParentYouTubeView: View {
                 Section {
                     TextField("https://www.youtube.com/playlist?list=…", text: $playlist, axis: .vertical)
                         .keyboardType(.URL).textInputAutocapitalization(.never).autocorrectionDisabled()
+                        .focused($playlistFocused)
+                        .submitLabel(.done)
+                        .onSubmit { playlistFocused = false }
                         .onChange(of: playlist) { _, _ in copied = false }
+                        .accessibilityIdentifier("parents.youtube.playlist")
                     if let validPlaylist {
                         Label("Playlist link recognized", systemImage: "checkmark.circle").foregroundStyle(.teal)
                         Text(validPlaylist.id).font(.caption.monospaced()).foregroundStyle(.secondary)
@@ -55,11 +61,13 @@ struct ParentYouTubeView: View {
                             let server = try ParentServer(model.importServerText)
                             UIPasteboard.general.string = validPlaylist.url.absoluteString
                             copied = true
+                            playlistFocused = false
                             manager = ImportManagerDestination(url: server.url)
                         } catch { model.error = error.localizedDescription }
                     } label: {
                         Label("Copy link & open import review", systemImage: "arrow.down.doc")
                     }.disabled(validPlaylist == nil || model.demo)
+                        .accessibilityIdentifier("parents.youtube.openReview")
                     if copied {
                         Text("Link copied. Paste it into the manager's playlist field.").font(.footnote).foregroundStyle(.secondary)
                     }
@@ -73,19 +81,34 @@ struct ParentYouTubeView: View {
                 Section("Archive") {
                     NavigationLink { ParentReviewInboxView(model: model) } label: {
                         Label("New-video review inbox", systemImage: "tray.and.arrow.down")
-                    }
+                    }.accessibilityIdentifier("parents.youtube.inbox")
                     Button("Open collections and download status", systemImage: "tray.full") {
-                        do { manager = try ImportManagerDestination(url: ParentServer(model.importServerText).url) }
-                        catch { model.error = error.localizedDescription }
+                        do {
+                            let destination = try ImportManagerDestination(url: ParentServer(model.importServerText).url)
+                            playlistFocused = false
+                            manager = destination
+                        } catch { model.error = error.localizedDescription }
                     }.disabled(model.demo)
+                        .accessibilityIdentifier("parents.youtube.collections")
                     Text(
                         "The existing server workflow owns review, approved storage, downloads, and publication. Collection pause only pauses new work; use viewing restrictions to hide a show."
                     )
                     .font(.footnote).foregroundStyle(.secondary)
                 }
             }.navigationTitle("YouTube")
+                .scrollDismissesKeyboard(.interactively)
+                .toolbar {
+                    ToolbarItemGroup(placement: .keyboard) {
+                        if playlistFocused {
+                            Spacer()
+                            Button("Done") { playlistFocused = false }
+                                .accessibilityIdentifier("parents.youtube.keyboardDone")
+                        }
+                    }
+                }
+                .onDisappear { playlistFocused = false }
                 .sheet(item: $manager) { destination in
-                    ImportManagerSheet(url: destination.url)
+                    ImportManagerSheet(url: destination.url, title: destination.title, reviewEntry: destination.reviewEntry)
                 }
         }
     }
@@ -94,26 +117,65 @@ struct ParentYouTubeView: View {
 struct ImportManagerDestination: Identifiable { let id = UUID()
     let url: URL
     let title: String
-    init(url: URL, title: String = "Import review") {
+    let reviewEntry: PlaylistReviewEntry?
+    init(url: URL, title: String = "Import review", reviewEntry: PlaylistReviewEntry? = nil) {
         self.url = url
         self.title = title
+        self.reviewEntry = reviewEntry
+    }
+
+    /// The deployed manager owns login and approval. The fragment selects only
+    /// the immutable snapshot; encode its ID as one route component.
+    static func review(url: URL, entry: PlaylistReviewEntry) throws -> Self {
+        let unreserved = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+        guard !entry.snapshotID.isEmpty,
+              let snapshot = entry.snapshotID.addingPercentEncoding(withAllowedCharacters: unreserved),
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+        else {
+            throw ParentControlError.invalidSelection
+        }
+        components.percentEncodedFragment = "review/\(snapshot)"
+        guard let destination = components.url else { throw ParentControlError.invalidAddress }
+        return Self(url: destination, reviewEntry: entry)
     }
 }
 
 struct ImportManagerSheet: View {
     let url: URL
     let title: String
-    init(url: URL, title: String = "Import review") {
+    let reviewEntry: PlaylistReviewEntry?
+    init(url: URL, title: String = "Import review", reviewEntry: PlaylistReviewEntry? = nil) {
         self.url = url
         self.title = title
+        self.reviewEntry = reviewEntry
     }
 
     @Environment(\.dismiss)
     private var dismiss
     var body: some View {
         NavigationStack {
-            ImportManagerView(url: url).navigationTitle(title).navigationBarTitleDisplayMode(.inline)
-                .toolbar { ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } } }
+            VStack(spacing: 0) {
+                if let reviewEntry {
+                    VStack(alignment: .leading, spacing: 6) {
+                        Text(reviewEntry.title).font(.headline)
+                        Text("Review this snapshot's selected videos before approving a download.")
+                            .font(.caption).foregroundStyle(.secondary)
+                        DisclosureGroup("Requested review details") {
+                            LabeledContent("Collection", value: reviewEntry.collectionID)
+                            LabeledContent("Snapshot", value: reviewEntry.snapshotID)
+                            LabeledContent("New videos", value: String(reviewEntry.newVideoCount))
+                        }.font(.caption)
+                    }.padding().frame(maxWidth: .infinity, alignment: .leading)
+                        .accessibilityIdentifier("parents.manager.requestedReview")
+                    Divider()
+                }
+                ImportManagerView(url: url)
+            }.navigationTitle(title).navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }.accessibilityIdentifier("parents.manager.done")
+                    }
+                }
         }
     }
 }
@@ -131,6 +193,7 @@ private struct ImportManagerView: UIViewRepresentable {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = .nonPersistent()
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.accessibilityIdentifier = "parents.manager.webView"
         webView.navigationDelegate = context.coordinator
         webView.load(URLRequest(url: url))
         return webView

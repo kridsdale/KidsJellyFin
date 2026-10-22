@@ -227,6 +227,116 @@ func `recovery metadata cannot retire playback through control ambient or heartb
 }
 
 @Test
+func `quarantine receipt is an exact noncredit audit acknowledgement`() async throws {
+    let disposition = UUID()
+    for kind: ReceiverEvent.Kind in [.started, .progress, .paused, .buffering, .ended, .stopped] {
+        let event = ReceiverEvent(
+            deviceID: receiverID,
+            childUserID: "kid",
+            policyRevision: 2,
+            playbackSessionID: "retired-session",
+            itemID: "approved-item",
+            kind: kind,
+            positionSeconds: 6.818,
+            elapsedPlayingSeconds: 0
+        )
+        let api = try receiverAPI(ReceiverTransport("""
+        {"commandID":"\(event.eventID)","status":"persisted","evidenceDisposition":"quarantined",
+        "unconfirmedPlaybackSessionID":"retired-session","dispositionID":"\(disposition)",
+        "usageCredited":false,"unknownUsagePreserved":true}
+        """))
+        let receipt = try await api.send(event)
+        #expect(receipt.evidenceDisposition == "quarantined")
+        #expect(receipt.unconfirmedPlaybackSessionID == event.playbackSessionID)
+        #expect(receipt.dispositionID == disposition)
+        #expect(receipt.usageCredited == false)
+        #expect(receipt.unknownUsagePreserved == true)
+    }
+}
+
+@Test
+func `missing unsafe or cross-controller quarantine metadata cannot acknowledge evidence`() async throws {
+    let event = ReceiverEvent(
+        deviceID: receiverID,
+        childUserID: "kid",
+        policyRevision: 2,
+        playbackSessionID: "retired-session",
+        itemID: "approved-item",
+        kind: .progress,
+        positionSeconds: 6.818,
+        elapsedPlayingSeconds: 5
+    )
+    let valid: [String: Any] = [
+        "commandID": event.eventID.uuidString,
+        "status": "persisted",
+        "evidenceDisposition": "quarantined",
+        "unconfirmedPlaybackSessionID": "retired-session",
+        "dispositionID": UUID().uuidString,
+        "usageCredited": false,
+        "unknownUsagePreserved": true
+    ]
+    var variants: [[String: Any]] = []
+    for key in ["dispositionID", "usageCredited", "unknownUsagePreserved", "unconfirmedPlaybackSessionID"] {
+        var body = valid
+        body.removeValue(forKey: key)
+        variants.append(body)
+    }
+    for patch: [String: Any] in [
+        ["usageCredited": true], ["unknownUsagePreserved": false], ["dispositionID": "not-a-uuid"],
+        ["usageCredited": "false"], ["unconfirmedPlaybackSessionID": "replacement-session"],
+        ["commandID": UUID().uuidString], ["status": "applied"]
+    ] {
+        variants.append(valid.merging(patch) { _, replacement in replacement })
+    }
+    for body in variants {
+        let raw = try JSONSerialization.data(withJSONObject: body)
+        let api = try receiverAPI(ReceiverTransport(String(decoding: raw, as: UTF8.self)))
+        await #expect(throws: ParentControlError.malformedResponse) { try await api.send(event) }
+    }
+}
+
+@Test
+func `quarantine metadata cannot retire through heartbeat ambient or command acknowledgements`() async throws {
+    for kind: ReceiverEvent.Kind in [.heartbeat, .commandApplied, .commandFailed, .ambientStarted, .ambientFailed] {
+        let event = ReceiverEvent(
+            deviceID: receiverID,
+            childUserID: "kid",
+            policyRevision: 2,
+            playbackSessionID: "retired-session",
+            itemID: "approved-item",
+            kind: kind,
+            positionSeconds: 1
+        )
+        let api = try receiverAPI(ReceiverTransport("""
+        {"commandID":"\(event.eventID)","status":"persisted","evidenceDisposition":"quarantined",
+        "unconfirmedPlaybackSessionID":"retired-session","dispositionID":"\(UUID())",
+        "usageCredited":false,"unknownUsagePreserved":true}
+        """))
+        await #expect(throws: ParentControlError.malformedResponse) { try await api.send(event) }
+    }
+}
+
+@Test
+func `quarantine credit flags cannot hide in ordinary or unconfirmed receipts`() async throws {
+    let event = ReceiverEvent(
+        deviceID: receiverID,
+        childUserID: "kid",
+        policyRevision: 2,
+        playbackSessionID: "retired-session",
+        itemID: "approved-item",
+        kind: .progress,
+        positionSeconds: 1
+    )
+    for disposition in ["", #","evidenceDisposition":"unconfirmed","unconfirmedPlaybackSessionID":"retired-session""#] {
+        let api = try receiverAPI(ReceiverTransport("""
+        {"commandID":"\(event.eventID)","status":"persisted","dispositionID":"\(UUID())",
+        "usageCredited":false,"unknownUsagePreserved":true\(disposition)}
+        """))
+        await #expect(throws: ParentControlError.malformedResponse) { try await api.send(event) }
+    }
+}
+
+@Test
 func `invalid device or numbers never leave receiver`() async throws {
     let transport = ReceiverTransport("{}")
     let api = try receiverAPI(transport)

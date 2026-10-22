@@ -28,8 +28,6 @@ public struct JellyfinParentAPI: Sendable {
         let result: Authentication = try await http.request("Users/AuthenticateByName", method: "POST", headers: [
             "Authorization": "MediaBrowser Client=\"KidsJellyFin Parents\", Device=\"iPhone\", DeviceId=\"\(deviceID.uuidString)\", Version=\"1.0\""
         ], body: JSONEncoder().encode(Login(Username: username, Pw: password)))
-        guard result.User.Policy.IsAdministrator == true else { throw ParentControlError.administratorRequired }
-        guard !result.AccessToken.isEmpty, !result.ServerId.isEmpty else { throw ParentControlError.malformedResponse }
         let credential = ParentCredential(
             server: http.server,
             serverID: result.ServerId,
@@ -37,8 +35,20 @@ public struct JellyfinParentAPI: Sendable {
             token: result.AccessToken,
             name: result.User.Name
         )
-        try await validate(credential)
-        return credential
+        do {
+            guard result.User.Policy.IsAdministrator == true else { throw ParentControlError.administratorRequired }
+            guard !result.AccessToken.isEmpty, !result.ServerId.isEmpty, !result.User.Id.isEmpty
+            else { throw ParentControlError.malformedResponse }
+            try await validate(credential)
+            return credential
+        } catch {
+            // Authentication may already have created a session even when its
+            // account or server validation fails. Retire that exact new token.
+            if !result.AccessToken.isEmpty {
+                try? await signOut(credential)
+            }
+            throw error
+        }
     }
 
     private struct User: Decodable, Sendable {
@@ -55,7 +65,11 @@ public struct JellyfinParentAPI: Sendable {
 
     private func headers(_ credential: ParentCredential) throws -> [String: String] {
         guard credential.server == http.server else { throw ParentControlError.serverMismatch }
-        return ["X-Emby-Token": credential.token]
+        guard !credential.token.isEmpty,
+              credential.token.utf8.allSatisfy({ $0 > 32 && $0 < 127 && $0 != 34 && $0 != 92 })
+        else { throw ParentControlError.unauthorized }
+        // Jellyfin 12 disables legacy X-Emby-Token authentication by default.
+        return ["Authorization": "MediaBrowser Token=\"\(credential.token)\""]
     }
 
     public func validate(_ credential: ParentCredential) async throws {

@@ -1,0 +1,5 @@
+# Sanitized QA error observations
+
+- Parent access after successful saved-adult unlock displayed: “The server returned HTTP 503. No success was confirmed. Refresh before retrying a change.” Countdown controls were disabled. This is an observed runtime access failure; its cause was not established and the service was not repaired or restarted.
+- TV physical coordinate tap failed in AXe: “Unable to determine rotated simulator orientation.” The reported unavailable orientation probe is a test-tool limitation, not proof the TV Parents button is defective. Keyboard Select observations did not open the gate; they are not treated as native remote acceptance evidence.
+- An initial QA-only Home command used unsupported argument syntax and exited64 before performing a Home action. The documented positional syntax was used afterward; no app source changed. A first relaunch capture still showed SpringBoard, so that capture is not accepted as background-lock evidence. The final case uses the actual Home-screen app icon instead.

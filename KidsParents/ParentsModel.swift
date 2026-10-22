@@ -10,16 +10,46 @@
 import Foundation
 import KidsParentControl
 import Observation
+import OSLog
 import SwiftfinPermissions
 
-private struct ParentActivityInterrupted: Error {}
+struct ParentsFailureLoggingTransport: ParentHTTPTransport {
+    private struct ErrorBody: Decodable { let error: String }
+    private static let logger = Logger(subsystem: "com.kridsdale.JellyfinPlayer", category: "ParentsHTTPFailure")
+    private let base = ParentURLTransport()
+
+    func send(_ request: URLRequest) async throws -> (Data, HTTPURLResponse) {
+        let (data, response) = try await base.send(request)
+        if !(200 ... 299).contains(response.statusCode) {
+            let route: String = switch request.url?.path {
+            case let path? where path.hasSuffix("/api/parent/v1/capabilities"): "capabilities"
+            case let path? where path.hasSuffix("/api/parent/v1/dashboard"): "dashboard"
+            default: "other"
+            }
+            var code = "unknown"
+            if data.count <= 4096, let value = try? JSONDecoder().decode(ErrorBody.self, from: data).error {
+                let bytes = Array(value.utf8)
+                if (1 ... 64).contains(bytes.count), let first = bytes.first, (97 ... 122).contains(first),
+                   bytes.dropFirst().allSatisfy({ (97 ... 122).contains($0) || (48 ... 57).contains($0) || $0 == 95 })
+                {
+                    code = value
+                }
+            }
+            Self.logger
+                .error("parent_http_failure status=\(response.statusCode) route=\(route, privacy: .public) error=\(code, privacy: .public)")
+        }
+        return (data, response)
+    }
+}
+
+struct ParentActivityInterrupted: Error {}
 
 @MainActor @Observable
 final class ParentsModel {
     var serverText = "http://1531server.local:8096"
     var username = ""
     var password = ""
-    var controlServerText = "http://192.168.10.100:8097"
+    var controlServerText = ""
     var controlToken = ""
     var importServerText = "http://192.168.10.100:8097"
     var credential: ParentCredential?
@@ -63,7 +93,30 @@ final class ParentsModel {
     var lastRefresh: Date?
     let demo: Bool
     var controls: ParentControlAPI?
-    private var generation = UUID()
+    private(set) var generation = UUID()
+    var tvParentAuthorizationPrompt: TVParentAuthorizationPrompt?
+    var tvParentAuthorizationDecisionBusy = false
+    var tvParentAuthorizationError: String?
+    @ObservationIgnored
+    var tvAuthorizationBrowser: LANParentAuthorizationBrowser?
+    @ObservationIgnored
+    var tvAuthorizationListeningScope: TVParentAuthorizationScope?
+    @ObservationIgnored
+    var tvAuthorizationForeground = false
+    @ObservationIgnored
+    var tvAuthorizationQueue: [LANParentAuthorizationNotice] = []
+    @ObservationIgnored
+    var tvAuthorizationSeen: [UUID] = []
+    @ObservationIgnored
+    var tvAuthorizationCheckingID: UUID?
+    @ObservationIgnored
+    var tvAuthorizationLookupTask: Task<Void, Never>?
+    @ObservationIgnored
+    var tvAuthorizationExpiryTask: Task<Void, Never>?
+    @ObservationIgnored
+    var tvAuthorizationWatchTask: Task<Void, Never>?
+    @ObservationIgnored
+    var tvAuthorizationDecisionTask: Task<Void, Never>?
     let credentialStore: any ParentCredentialStore
     let transport: any ParentHTTPTransport
     private let authenticateDevice: @MainActor () async throws -> Bool
@@ -88,7 +141,7 @@ final class ParentsModel {
     init(
         demo: Bool = false,
         credentialStore: any ParentCredentialStore = KeychainParentCredentialStore(),
-        transport: any ParentHTTPTransport = ParentURLTransport(),
+        transport: any ParentHTTPTransport = ParentsFailureLoggingTransport(),
         authenticateDevice: @escaping @MainActor () async throws -> Bool = {
             try await DeviceAuthenticationPermission.request(reason: "Manage your family's viewing") == .authorized
         }
@@ -198,7 +251,6 @@ final class ParentsModel {
             )
             try await self.loadControls(api)
             self.controls = api
-            try await self.loadProfileState(api)
             guard epoch == self.generation, !self.locked else {
                 self.controls = nil
                 self.capabilities = nil
@@ -214,7 +266,8 @@ final class ParentsModel {
             ), account: "parentService")
             self.needsRefresh = false
             self.controlToken = ""
-            self.controlStatus = "Parent service connected. Controls reflect its advertised capabilities."
+            self.controlStatus = "Parent service connected. Access is saved on this iPhone."
+            try await self.loadProfileState(api)
         }
     }
 
@@ -238,25 +291,16 @@ final class ParentsModel {
     }
 
     func schedule() async {
-        guard canSchedule, let tv = chosenTV, let dashboard, let controls else { return }
-        await perform {
-            let command = try CountdownRequest(tv: tv, minutes: self.minutes, birdItemID: self.selectedBird, dashboard: dashboard)
-            let receipt = try await controls.countdown(command)
-            self.lastCommand = receipt
-            self.notice = "Server status: \(receipt.status). Refresh to check TV delivery."
-            try await self.loadControls(controls)
-            self.needsRefresh = false
+        guard canSchedule else { return }
+        let bird = selectedBird, duration = minutes
+        await mutateFreshTV(feature: "durable-countdown-v1") { api, tv, state in
+            try await api.countdown(CountdownRequest(tv: tv, minutes: duration, birdItemID: bird, dashboard: state))
         }
     }
 
     func cancelCountdown() async {
-        guard canUse("durable-countdown-v1"), let tv = chosenTV, let controls else { return }
-        await perform {
-            let receipt = try await controls.cancelCountdown(tv: tv)
-            self.lastCommand = receipt
-            self.notice = "Cancellation status: \(receipt.status)."
-            try await self.loadControls(controls)
-            self.needsRefresh = false
+        await mutateFreshTV(feature: "durable-countdown-v1") { api, tv, _ in
+            try await api.cancelCountdown(tv: tv)
         }
     }
 
@@ -272,6 +316,7 @@ final class ParentsModel {
 
     func signOut() async {
         guard !demo, !busy else { return }
+        stopTVParentAuthorization()
         busy = true
         let old = credential
         generation = UUID()
@@ -298,6 +343,7 @@ final class ParentsModel {
 
     func lock() {
         guard !demo else { return }
+        stopTVParentAuthorization()
         generation = UUID()
         password = ""
         controlToken = ""
@@ -315,6 +361,53 @@ final class ParentsModel {
                 await refresh()
             }
         } catch { self.error = "Parent controls stayed locked. Unlock with Face ID or your iPhone passcode." }
+    }
+
+    func unlockWithPassword() async {
+        guard locked, !busy, !demo, let previous = credential, !password.isEmpty else { return }
+        let epoch = generation
+        let suppliedPassword = password
+        password = ""
+        busy = true
+        error = nil
+        notice = nil
+        defer { busy = false
+            password = ""
+        }
+        let api = JellyfinParentAPI(server: previous.server, transport: transport)
+        do {
+            let deviceID = UserDefaults.standard.string(forKey: "parentDeviceID").flatMap(UUID.init(uuidString:)) ?? UUID()
+            UserDefaults.standard.set(deviceID.uuidString, forKey: "parentDeviceID")
+            let replacement = try await api.signIn(username: previous.name, password: suppliedPassword, deviceID: deviceID)
+            do {
+                guard replacement.serverID == previous.serverID, replacement.userID == previous.userID else {
+                    throw ParentControlError.serverMismatch
+                }
+                guard epoch == generation, locked else { throw ParentActivityInterrupted() }
+                try credentialStore.write(replacement, account: "jellyfin")
+            } catch {
+                try? await api.signOut(replacement)
+                throw error
+            }
+            credential = replacement
+            locked = false
+            var retirementNotice: String?
+            if previous.token != replacement.token {
+                do { try await api.signOut(previous) }
+                catch { retirementNotice = "Unlocked. The previous Jellyfin session could not be retired; remove it in Jellyfin if needed."
+                }
+            }
+            busy = false
+            guard epoch == generation, !locked else { return }
+            await refresh()
+            if let retirementNotice {
+                notice = retirementNotice
+            }
+        } catch is ParentActivityInterrupted {
+            // A late password response cannot reopen the backgrounded app.
+        } catch {
+            self.error = error.localizedDescription + " Parent controls stayed locked."
+        }
     }
 
     func perform(_ action: () async throws -> Void) async {
@@ -335,6 +428,9 @@ final class ParentsModel {
                 capabilities = nil
                 dashboard = nil
                 clearFamilyState()
+            }
+            if self.controls == nil, self.credential != nil {
+                self.controlStatus = "Parent access is unavailable. In Settings, check the parent service address or connect replacement access. Your Jellyfin sign-in is saved."
             }
             self.error = error.localizedDescription + " Refresh before retrying a change."
         }

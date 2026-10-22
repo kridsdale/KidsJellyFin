@@ -89,6 +89,13 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     @Published
     public var parentPresented = false
     @Published
+    public private(set) var parentPhoneAuthorizationStatus: String?
+    @Published
+    public private(set) var parentPhoneAuthorizationPending = false
+    private var parentPhoneAuthorizationID: UUID?
+    private var parentPhoneAuthorizationCreated = false
+    private let parentAuthorizationAdvertiser = LANParentAuthorizationAdvertiser()
+    @Published
     public internal(set) var gate = KidsGate()
     @Published
     public internal(set) var state: KidsState?
@@ -106,6 +113,11 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
     public internal(set) var episodeCache: [String: [KidsItem]] = [:]
     public var binding: KidsBinding? {
         state?.binding
+    }
+
+    /// Public endpoint only; discovery never receives the stored access token.
+    public var serverAddress: URL? {
+        accounts?.currentIdentity?.serverURL
     }
 
     private struct APIIdentity: Equatable {
@@ -719,7 +731,104 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         }
     }
 
+    /// Own one finite request for the lifetime of the visible PIN challenge.
+    /// Only the authenticated service can answer; Bonjour cannot unlock the gate.
+    public func waitForParentPhoneAuthorization() async {
+        guard !isPreview, parentPresented, hasParentPIN, !unlocked, receiverForeground,
+              let runtime = viewingRuntime, let binding,
+              runtime.configuration.serverID == binding.serverID,
+              runtime.configuration.childUserID == binding.userID
+        else {
+            parentPhoneAuthorizationStatus = "Enter your PIN. A paired Parents iPhone can also approve when connected."
+            return
+        }
+        cancelParentPhoneAuthorization()
+        let epoch = accountRevision
+        let controlEpoch = viewingControlRevision
+        let deadline = ContinuousClock.now.advanced(by: .seconds(60))
+        let notice: LANParentAuthorizationNotice
+        do { notice = try .fresh(serverID: binding.serverID) }
+        catch { parentPhoneAuthorizationStatus = "iPhone approval is unavailable. You can still enter your PIN."
+            return
+        }
+        parentPhoneAuthorizationID = notice.requestID
+        parentPhoneAuthorizationPending = true
+        parentPhoneAuthorizationStatus = "Asking a parent iPhone on this Wi-Fi…"
+        var terminal = false
+        defer {
+            if parentPhoneAuthorizationID == notice.requestID {
+                parentAuthorizationAdvertiser.stop()
+                parentPhoneAuthorizationID = nil
+                parentPhoneAuthorizationCreated = false
+                parentPhoneAuthorizationPending = false
+            }
+            if !terminal {
+                Task { try? await runtime.api.cancelParentAuthorization(requestID: notice.requestID) }
+            }
+        }
+        func isCurrent() -> Bool {
+            !Task.isCancelled && parentPhoneAuthorizationID == notice.requestID && parentPresented && !unlocked &&
+                receiverForeground && accountRevision == epoch && viewingControlRevision == controlEpoch &&
+                viewingRuntime === runtime && self.binding == binding && ContinuousClock.now < deadline
+        }
+        do {
+            var response = try await runtime.api.requestParentAuthorization(notice)
+            guard isCurrent(), response.status == .pending, response.expiresAt > .now else { return }
+            parentPhoneAuthorizationCreated = true
+            let originalExpiry = response.expiresAt
+            try parentAuthorizationAdvertiser.start(notice: notice)
+            parentPhoneAuthorizationStatus = "Open Parents on an iPhone on this Wi-Fi, then choose Yes or No. Or enter your PIN."
+            while isCurrent(), Date.now < originalExpiry {
+                let started = ContinuousClock.now
+                response = try await runtime.api.parentAuthorization(requestID: notice.requestID)
+                guard isCurrent(), response.expiresAt == originalExpiry else { return }
+                if response.status != .pending {
+                    terminal = true
+                    guard Date.now < originalExpiry else { break }
+                    switch response.status {
+                    case .approved:
+                        // Same short-lived parent gate as a correct PIN; no playback grant.
+                        gate = KidsGate()
+                        _ = gate.attempt(correct: true, now: .now)
+                        saveGate()
+                        parentPhoneAuthorizationStatus = nil
+                    case .denied: parentPhoneAuthorizationStatus = "The parent chose No. You can still enter your PIN."
+                    case .cancelled, .expired: parentPhoneAuthorizationStatus = "The iPhone request ended. You can still enter your PIN."
+                    case .pending: break
+                    }
+                    return
+                }
+                // A backend without the promised event wait must not cause a request spin.
+                guard started.duration(to: .now) >= .milliseconds(500) else {
+                    parentPhoneAuthorizationStatus = "iPhone approval is unavailable. You can still enter your PIN."
+                    return
+                }
+            }
+            if parentPhoneAuthorizationID == notice.requestID {
+                parentPhoneAuthorizationStatus = "The iPhone request expired. You can still enter your PIN."
+            }
+        } catch {
+            if parentPhoneAuthorizationID == notice.requestID, !Task.isCancelled {
+                parentPhoneAuthorizationStatus = "iPhone approval is unavailable. You can still enter your PIN."
+            }
+        }
+    }
+
+    public func cancelParentPhoneAuthorization() {
+        let id = parentPhoneAuthorizationID
+        let created = parentPhoneAuthorizationCreated
+        let api = viewingRuntime?.api
+        parentAuthorizationAdvertiser.stop()
+        parentPhoneAuthorizationID = nil
+        parentPhoneAuthorizationCreated = false
+        parentPhoneAuthorizationPending = false
+        if created, let id, let api {
+            Task { try? await api.cancelParentAuthorization(requestID: id) }
+        }
+    }
+
     public func lockParents() {
+        cancelParentPhoneAuthorization()
         admission?.cancel()
         gate.lock()
         saveGate()
@@ -762,6 +871,9 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
             let correct = isPreview ? pin == "4242" : try accounts?.matchesParentPIN(pin) ?? false
             let result = gate.attempt(correct: correct, now: .now)
             saveGate()
+            if result {
+                cancelParentPhoneAuthorization()
+            }
             return result
         } catch {
             gate.lock()
@@ -775,8 +887,11 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         guard !isPreview else { throw KidsContractError.denied }
         guard let accounts else { throw KidsAPIError.authentication }
         try accounts.authorizeParentSetup(unlocked: unlocked, recovering: recovering)
-        guard (4 ... 8).contains(parentPIN.count), parentPIN.allSatisfy(\.isNumber),
-              parentPIN != password else { throw KidsContractError.denied }
+        // The existing short-lived gate (PIN or phone) already authenticates
+        // reconnect. An empty value preserves the installed PIN; it never sets one.
+        let keepExistingPIN = !recovering && parentPIN.isEmpty && accounts.hasParentPIN && unlocked
+        guard keepExistingPIN || ((4 ... 8).contains(parentPIN.count) && parentPIN.allSatisfy(\.isNumber) &&
+            parentPIN != password) else { throw KidsContractError.denied }
         guard let url = URL(string: urlText.trimmingCharacters(in: .whitespacesAndNewlines)),
               ["http", "https"].contains(url.scheme?.lowercased()), url.host != nil, url.user == nil,
               url.password == nil else { throw KidsAPIError.connection }
@@ -816,15 +931,20 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
                 guard gate.mayAttempt(at: .now) else { throw KidsContractError.denied }
                 restored = try repository().reset(binding: binding)
             } else {
-                if accounts.hasParentPIN {
+                if accounts.hasParentPIN, !keepExistingPIN {
                     guard try accounts.matchesParentPIN(parentPIN) else { throw KidsContractError.denied }
                 }
                 // Refreshing credentials for the same binding retains ordered progress, bags, and session budget.
                 restored = try repository().load(binding: binding, legacyURL: stateURL)
             }
-            // Only the same-account/library recovery above may replace a locked PIN.
-            // Parent access is granted after secure storage succeeds.
-            try replacePIN(parentPIN, verifiedRecovery: recovering)
+            // Only verified same-account/library recovery may replace a locked PIN.
+            // Reconnect can preserve a PIN using the already unlocked parent gate.
+            if keepExistingPIN {
+                guard unlocked else { throw KidsContractError.denied }
+                touchGate()
+            } else {
+                try replacePIN(parentPIN, verifiedRecovery: recovering)
+            }
             try attempt.check()
             await stopPlayback()
             try attempt.check()
@@ -972,7 +1092,9 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
         let generation = UUID()
         startGeneration = generation
         Task { [weak self] in
-            try? await Task.sleep(for: .seconds(15))
+            // Bound the complete policy, metadata, authorization and admission
+            // sequence rather than timing out a valid multi-request start early.
+            try? await Task.sleep(for: .seconds(45))
             guard let self, self.startGeneration == generation, self.starting else { return }
             self.cancelPendingStart()
             self.problem = "This video is taking a break. Try again."
@@ -1162,6 +1284,7 @@ public final class KidsAppModel: ObservableObject, KidsPlaybackSessionDelegate {
 
     public func background() {
         receiverForeground = false
+        ParentControlDiagnostics.loop(.background, foreground: false, paired: viewingRuntime != nil)
         cancelPendingStart()
         lockParents()
         if let controller = activePlayback {
