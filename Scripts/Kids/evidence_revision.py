@@ -16,6 +16,8 @@ INPUTS = (
     "Packages/KidsExperience/Sources/KidsExperience",
     "Packages/KidsServerDiscovery/Sources/KidsServerDiscovery",
     "Packages/SwiftfinCredentials/Sources/SwiftfinCredentials",
+    "KidsParents",
+    "KidsParents/Info.plist",
     "Swiftfin tvOS/App/KidsPlaybackAdapter.swift",
     "Swiftfin tvOS/App/KidsAccountAdapter.swift",
     "Swiftfin tvOS/App/SwiftfinApp.swift",

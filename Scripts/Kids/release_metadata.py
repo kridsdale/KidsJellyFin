@@ -96,17 +96,42 @@ def manifest(
     source_commit: str,
     source_revision: str,
     branch: str,
-    rollback_version: str,
-    rollback_commit: str,
+    rollback_version: str | None,
+    rollback_commit: str | None,
+    rollback_snapshot_id: str | None,
+    rollback_artifacts: list[Path],
     artifacts: list[Path],
     qa_evidence: list[Path],
     backend_message_id: str | None = None,
 ) -> dict[str, object]:
-    if HEX40.fullmatch(source_commit) is None or HEX40.fullmatch(rollback_commit) is None:
-        raise ValueError("source and rollback commits must be full lowercase Git object IDs")
+    if HEX40.fullmatch(source_commit) is None:
+        raise ValueError("source commit must be a full lowercase Git object ID")
     if HEX64.fullmatch(source_revision) is None:
         raise ValueError("implementation revision must be a lowercase SHA-256 digest")
-    ReleaseVersion.parse(rollback_version)
+    if rollback_snapshot_id is not None:
+        if rollback_version is not None or rollback_commit is not None:
+            raise ValueError("legacy rollback snapshots cannot claim a release version or source commit")
+        if not rollback_artifacts:
+            raise ValueError("legacy rollback snapshots require at least one archived artifact")
+        rollback: dict[str, object] = {
+            "kind": "legacy-simulator-snapshot",
+            "snapshotId": rollback_snapshot_id,
+            "artifacts": [_path_record(root, path) for path in rollback_artifacts],
+        }
+    else:
+        if rollback_version is None or rollback_commit is None:
+            raise ValueError("release rollback requires both version and commit")
+        if HEX40.fullmatch(rollback_commit) is None:
+            raise ValueError("rollback commit must be a full lowercase Git object ID")
+        if rollback_artifacts:
+            raise ValueError("release rollback artifacts belong in the predecessor manifest")
+        parsed_rollback = ReleaseVersion.parse(rollback_version)
+        rollback = {
+            "kind": "release",
+            "releaseVersion": rollback_version,
+            "commit": rollback_commit,
+            "tag": parsed_rollback.tag,
+        }
     return {
         "schemaVersion": 1,
         "releaseVersion": version.value,
@@ -122,11 +147,7 @@ def manifest(
         },
         "artifacts": [_path_record(root, path) for path in artifacts],
         "qaEvidence": [_path_record(root, path) for path in qa_evidence],
-        "rollback": {
-            "releaseVersion": rollback_version,
-            "commit": rollback_commit,
-            "tag": ReleaseVersion.parse(rollback_version).tag,
-        },
+        "rollback": rollback,
         "backendNotification": {
             "threadId": "kids-xca",
             "messageId": backend_message_id,
@@ -150,8 +171,11 @@ def main(arguments: list[str] | None = None) -> int:
     manifest_parser.add_argument("--source-commit")
     manifest_parser.add_argument("--source-revision", required=True)
     manifest_parser.add_argument("--branch")
-    manifest_parser.add_argument("--rollback-version", required=True)
-    manifest_parser.add_argument("--rollback-commit", required=True)
+    rollback_group = manifest_parser.add_mutually_exclusive_group(required=True)
+    rollback_group.add_argument("--rollback-version")
+    rollback_group.add_argument("--rollback-snapshot-id")
+    manifest_parser.add_argument("--rollback-commit")
+    manifest_parser.add_argument("--rollback-artifact", action="append", type=Path, default=[])
     manifest_parser.add_argument("--artifact", action="append", type=Path, default=[])
     manifest_parser.add_argument("--qa-evidence", action="append", type=Path, default=[])
     manifest_parser.add_argument("--backend-message-id")
@@ -176,6 +200,8 @@ def main(arguments: list[str] | None = None) -> int:
         branch=options.branch or _git(root, "branch", "--show-current"),
         rollback_version=options.rollback_version,
         rollback_commit=options.rollback_commit,
+        rollback_snapshot_id=options.rollback_snapshot_id,
+        rollback_artifacts=options.rollback_artifact,
         artifacts=options.artifact,
         qa_evidence=options.qa_evidence,
         backend_message_id=options.backend_message_id,

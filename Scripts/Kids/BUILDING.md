@@ -36,6 +36,8 @@ python3 Scripts/Kids/build_with_revision.py --release-version 20261022-0937 -- \
   -configuration Release -destination 'generic/platform=tvOS Simulator' build
 ```
 
+The implementation digest covers both the tvOS child runtime and the iOS Parents app sources. Before release, both built bundles must expose the same `KidsEvidenceImplementationRevision` and `KidsReleaseVersion` values.
+
 If another editor changes implementation inputs during the build, the wrapper
 reports stale identity and exits unsuccessfully even if compilation passed. Keep
 that result out of runtime acceptance. Resolve edits and use the next planned

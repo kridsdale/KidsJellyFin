@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
+    <key>KidsEvidenceImplementationRevision</key><string>$(KIDS_EVIDENCE_REVISION)</string>
     <key>KidsReleaseVersion</key><string>$(KIDS_RELEASE_VERSION)</string>
     <key>CFBundleDisplayName</key><string>KidsJellyFin Parents</string>
     <key>NSLocalNetworkUsageDescription</key><string>Connect to your family's Jellyfin server and manage approved viewing on your home network.</string>

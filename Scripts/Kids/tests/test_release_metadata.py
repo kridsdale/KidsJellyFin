@@ -42,6 +42,8 @@ class ReleaseMetadataTests(unittest.TestCase):
                 branch="feature/kids-release-candidate",
                 rollback_version="20261021-1840",
                 rollback_commit="c" * 40,
+                rollback_snapshot_id=None,
+                rollback_artifacts=[],
                 artifacts=[artifact],
                 qa_evidence=[evidence],
                 backend_message_id="105",
@@ -50,8 +52,48 @@ class ReleaseMetadataTests(unittest.TestCase):
             self.assertEqual(record["artifacts"][0]["files"], 1)
             self.assertEqual(record["qaEvidence"][0]["path"], "qa.md")
             self.assertEqual(record["rollback"]["tag"], "client-v20261021-1840")
+            self.assertEqual(record["rollback"]["kind"], "release")
             self.assertEqual(record["backendNotification"]["messageId"], "105")
             json.dumps(record)
+
+    def test_first_release_can_record_a_legacy_rollback_snapshot(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rollback = root / "legacy-tv.zip"
+            rollback.write_bytes(b"previous app")
+            record = manifest(
+                root=root,
+                version=ReleaseVersion.parse("20261022-0907"),
+                source_commit="a" * 40,
+                source_revision="b" * 64,
+                branch="feature/kids-release-candidate",
+                rollback_version=None,
+                rollback_commit=None,
+                rollback_snapshot_id="legacy-20261017-simulator",
+                rollback_artifacts=[rollback],
+                artifacts=[],
+                qa_evidence=[],
+            )
+            self.assertEqual(record["rollback"]["kind"], "legacy-simulator-snapshot")
+            self.assertEqual(record["rollback"]["snapshotId"], "legacy-20261017-simulator")
+            self.assertEqual(record["rollback"]["artifacts"][0]["sha256"], "d3d102008e9a031efe28743bc7b9bd2c6479499cfe4eb322efd8e88952cddee4")
+
+    def test_legacy_rollback_snapshot_requires_artifacts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            with self.assertRaisesRegex(ValueError, "require at least one archived artifact"):
+                manifest(
+                    root=Path(directory),
+                    version=ReleaseVersion.parse("20261022-0907"),
+                    source_commit="a" * 40,
+                    source_revision="b" * 64,
+                    branch="feature/kids-release-candidate",
+                    rollback_version=None,
+                    rollback_commit=None,
+                    rollback_snapshot_id="legacy-empty",
+                    rollback_artifacts=[],
+                    artifacts=[],
+                    qa_evidence=[],
+                )
 
 
 if __name__ == "__main__":

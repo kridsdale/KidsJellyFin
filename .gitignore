@@ -124,6 +124,7 @@ artifacts/**/*.jsonl
 artifacts/**/*.xcresult/
 releases/client/**/*.app/
 releases/client/**/*.xcarchive/
+.release-cache/
 
 # Beads / Dolt files (added by bd init)
 .dolt/
