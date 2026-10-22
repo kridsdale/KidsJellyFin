@@ -1,0 +1,77 @@
+{
+  "artifacts": [
+    {
+      "bytes": 101840256,
+      "kind": "file",
+      "path": ".release-cache/client/20261022-0236/KidsJellyFin-tvOS.zip",
+      "sha256": "3016b1de4b1cc30c100f4352b9eefaa0d7e92b52c0b962c55a869049dc620135"
+    },
+    {
+      "bytes": 7571541,
+      "kind": "file",
+      "path": ".release-cache/client/20261022-0236/KidsJellyFinParents-iOS.zip",
+      "sha256": "d9a1f63a425b894e734d101e76c7b1a060175ac92fe6e209574b965894dae586"
+    }
+  ],
+  "backendNotification": {
+    "messageId": "105",
+    "threadId": "kids-xca",
+    "transport": "agent_mail"
+  },
+  "bundle": {
+    "buildVersion": "202610220236",
+    "marketingVersion": "2026.10.22"
+  },
+  "qaEvidence": [
+    {
+      "bytes": 56595,
+      "kind": "file",
+      "path": "artifacts/qa/2026-10-21-rerun/qa-rerun-report.md",
+      "sha256": "f2678cbe83ecd7610f988b9059a535f60837d6b0949b3b62093baa64bd9bf269"
+    },
+    {
+      "bytes": 2078,
+      "kind": "file",
+      "path": "artifacts/qa/2026-10-21-rerun/snapshot-fix-followup-addendum.md",
+      "sha256": "43d5c0c835ed34aed65b339c30dddeb0567c2740e179c881c84b4e928c7004c8"
+    },
+    {
+      "bytes": 2314,
+      "kind": "file",
+      "path": "docs/engineering/qa-p1-triage-20261022.md",
+      "sha256": "c8c1573df2a290ce59468fc80fd896351decf3359bbc2faa9e44d1244211ba13"
+    },
+    {
+      "bytes": 3897,
+      "kind": "file",
+      "path": "artifacts/qa/2026-10-22-release-20261022-0236.md",
+      "sha256": "a40957977bd075db90a4162caaf4d3afa58a6031aaa1f523b0ee13b79e821e82"
+    }
+  ],
+  "releaseVersion": "20261022-0236",
+  "rollback": {
+    "artifacts": [
+      {
+        "bytes": 150896263,
+        "kind": "file",
+        "path": ".release-cache/client/legacy-20261017-simulator/KidsJellyFin-tvOS.zip",
+        "sha256": "3f3973770c9d4695eff08ff32fe1049336924354479235d6d5c14e6dc6ca4800"
+      },
+      {
+        "bytes": 1973188,
+        "kind": "file",
+        "path": ".release-cache/client/legacy-20261017-simulator/KidsJellyFinParents-iOS.zip",
+        "sha256": "096a3cf160aec0e493d091374f6d687e7580ec0c790035c7a332bd031df34d37"
+      }
+    ],
+    "kind": "legacy-simulator-snapshot",
+    "snapshotId": "legacy-20261017-simulator"
+  },
+  "schemaVersion": 1,
+  "source": {
+    "branch": "release/client-20261022-0236",
+    "commit": "848110e11a6160efab7837f2f4a150c02860b64d",
+    "implementationRevision": "980f87be4ebf90f3d5f60a78a5a265c5cdac3824696d5374b60b341c4e139342",
+    "tag": "client-v20261022-0236"
+  }
+}
