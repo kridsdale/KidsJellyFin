@@ -12,7 +12,7 @@ The service starts after login, restarts after failure, and stores mailbox data 
 
 ## Daily workflow
 
-1. Read canonical Beads ready AND in-progress tasks, then fetch unread Mail once at resume, work boundaries or the existing scheduled heartbeat.
+1. At an actual work boundary, read the relevant canonical Beads and fetch unread Mail once. On a scheduled wake, fetch unread Mail exactly once with limit 10 and inspect only the canonical Bead IDs named by actionable messages; do not scan broad history or the whole queue when idle.
 2. Use the canonical Bead ID as `thread_id`. A handoff contains the owner, changed state, relevant source/artifact hash and concrete next action. Send only changed state. Beads owns dependencies and completion; mail does not duplicate the task list.
 3. Require an ACK only when handing off readiness, ownership or a real blocker. Acknowledge receipt and mark handled mail read. An ACK confirms receipt, not completed work or new human authorization. Do not send ACKs of ACKs.
 4. Parallelize independent resources only. Reserve shared edit/build paths if they are actually shared; release them on completion. Backend and client keep their canonical execution ownership.
@@ -36,7 +36,7 @@ printf '%s' '{"to":["GreenCastle"],"thread_id":"kids-EXAMPLE","subject":"[kids-E
 
 Use `acknowledge_message` with `message_id` for required ACKs and `mark_message_read` after consuming messages. Use contacts_only and explicit `request_contact` / `respond_contact`; no open contact policy.
 
-Agent Mail stores durable messages but does not itself wake a dormant Codex desktop chat. Existing heartbeat automations remain the wake mechanism and fetch Mail instead of peer chat history. Normal direct `send_message_to_thread` coordination is retired; use it only for a concrete Mail bootstrap/repair failure. Never add an automatic loop that injects mail bodies as user prompts.
+Agent Mail stores durable messages but does not itself wake a dormant Codex desktop chat. Adaptive heartbeat automations are the current wake mechanism and fetch Mail instead of peer chat history. Normal direct `send_message_to_thread` coordination is retired; use it only for a concrete Mail bootstrap/repair failure. Never add an automatic loop that injects mail bodies as user prompts.
 
 ## Private files and recovery
 
@@ -48,6 +48,10 @@ Stop the mailbox service with `launchctl bootout gui/501/local.codex.agent-mail`
 
 Both Macs enrolled and authenticated against the same LAN MCP server. GreenCastle confirmed its preserved Codex configuration, private helper, contacts_only policy, project/global instructions and heartbeat migration in actual Mail message3; BlueLake acknowledged that message. BlueLake then delivered normal message4 to GreenCastle. Explicit contact links are approved in both directions through October20,2027; the one-time public enrollment listener is stopped. Handled contact message1 was absent from the next unread result, exercising the real unread filter. Codex CLI parsed the local enabled streamable HTTP configuration. Already-running native tool-registry reload is not claimed; both existing chats can use the real MCP helper immediately. The private acceptance receipt is retained under the service folder; `kids-wr7.5` records the durable task result.
 
-## Human override: stop model polling (October20,2026)
+## Human override: adaptive scheduled polling (October 22, 2026)
 
-The10min continuation heartbeat is now PAUSED after the human rejected polling costs. It must not be replaced with hourly model polling. Mail service and existing delivery records remain intact; the unfinished engineering backlog remains open. `kids-wr7.6` designs a deterministic event dispatcher: durable mail outbox, persistent authenticated per-host event delivery, Beads readiness transitions and one-shot deadlines. Idle costs zero model calls. App Server supports standalone toolOutput turns; safe attachment to the existing desktop-owned chats is the first implementation gate and is not yet proven. Do not claim that installing Mail completed that wakeup integration. The server received this change as Mail5; remote scheduler changes are not yet confirmed.
+The active fallback on BlueLake and GreenCastle begins at 10 minutes. An actionable Mail handoff, a real ownership/readiness transition or resumed work resets the interval to 10 minutes. Consecutive idle checks advance through 20, 40, 80, 160 and 240 minutes; the scheduler stays at the four-hour ceiling until actionable state appears. Each automation stores its current interval in its own configuration so an app or host restart retains the backoff stage.
+
+Every scheduled fire performs one unread-inbox fetch with limit 10. No unread message, unchanged state or ACK-only traffic is idle: do not send a peer message, run tests, probe services, restart anything or scan unrelated Beads. For actionable Mail, inspect only the corresponding canonical Bead and current ownership, act within existing authorization, mark handled Mail read and send an ACK only when required. Reset the interval to 10 minutes after that changed state is consumed. Notify the human only for meaningful progress, a new blocker, completion or required action.
+
+The user-level watcher from `kids-wr7.8` remains installed but has not proven live delivery into the Desktop-owned chat. It is not a prerequisite for app delivery, and no new event-dispatcher project should displace product work. Agent Mail delivery itself remains independent from model wakeup.

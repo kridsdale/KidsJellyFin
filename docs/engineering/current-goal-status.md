@@ -56,11 +56,13 @@ speculative fix or repeated diagnostic loop is warranted. Root restored normal
 parent controls OFF and stopped the TV while preserving its journal.
 
 Cross-Mac handoffs use Agent Mail, with Beads retaining task ownership. The
-continuation heartbeat is paused. The user-level event watcher is installed;
-live Desktop wake remains unverified, with last observed watcher status
-`WAITING_FOR_LOCAL_RESOURCE`. Agent Mail delivery works; delivery alone does not
-establish that the backend owner has resumed. Coordination infrastructure is
-independent of app delivery and uses no administrator/sudo.
+active scheduled fallback starts at 10 minutes and backs off after consecutive
+idle checks through 20, 40, 80, 160 and 240 minutes, resetting to 10 minutes on an
+actionable handoff or ownership transition. Each fire reads unread Mail once
+and checks only corresponding canonical Beads. The user-level event watcher is
+installed, but live Desktop wake remains unverified. Agent Mail delivery alone
+does not establish that the backend owner has resumed. Coordination
+infrastructure is independent of app delivery and uses no administrator/sudo.
 
 The October20 UI request is implemented in signed simulator builds: Parents
 uses an animated right-quarter sidebar in browse, normal playback and ambient

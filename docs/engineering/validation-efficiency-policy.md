@@ -95,3 +95,14 @@ source revision does not permit a same-day rerun. Continue with short focused
 checks and other delivery work; do not ask for routine exemptions. Passing
 unchanged work should not be retested merely because another day has begun.
 No automation or new test framework is required for this policy change.
+
+## Adaptive coordination polling
+
+The October 22 human override permits one scheduled Agent Mail fetch beginning
+at 10 minutes. Consecutive idle checks back off through 20, 40, 80, 160 and
+240 minutes; actionable Mail or a real ownership transition resets the interval
+to 10 minutes.
+Each fire reads the unread inbox once with limit 10 and checks only corresponding
+canonical Beads. It does not justify broad queue scans, unchanged peer messages,
+tests, probes or restarts. This bounded fallback supersedes both the former
+ten-minute fixed loop and the later fixed hourly schedule.
